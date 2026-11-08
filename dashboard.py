@@ -23,6 +23,10 @@ def auth(f):
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="60"><title>Kalshi Edge</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="theme-color" content="#000000">
 <style>
 :root{--bg:#000;--card:#111;--line:#222;--txt:#eee;--dim:#888;--up:#2ecc71;--dn:#ff5c5c;--warn:#f5b041}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
@@ -81,6 +85,21 @@ button{font-weight:700;cursor:pointer}button:disabled{opacity:.35}
 <div class="row log">{% for e in events %}{{e.at[5:16]}} {{e.msg}}
 {% endfor %}</div>
 </body></html>"""
+
+
+@app.route("/manifest.webmanifest")
+def manifest():
+    """Public on purpose: Android fetches this without the login. It only names the icon."""
+    from flask import jsonify
+    r = jsonify({
+        "name": "Kalshi Edge", "short_name": "Kalshi Edge", "start_url": "/",
+        "display": "standalone", "background_color": "#000000", "theme_color": "#000000",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ]})
+    r.headers["Content-Type"] = "application/manifest+json"
+    return r
 
 
 @app.route("/")
