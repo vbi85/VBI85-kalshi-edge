@@ -130,3 +130,15 @@ def quotes(market):
     if nb is None and ya is not None:
         nb = round(1 - ya, 2)
     return yb, ya, nb, na
+
+
+def volume(market):
+    """24h volume if present, else lifetime. Kalshi sends these as *_fp strings now."""
+    for k in ("volume_24h_fp", "volume_24h", "volume_fp", "volume"):
+        v = market.get(k)
+        if v not in (None, ""):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+    return 0.0

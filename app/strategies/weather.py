@@ -9,7 +9,7 @@ import re
 from datetime import date, timedelta, timezone
 
 from .. import config, db, nws
-from ..kalshi import quotes
+from ..kalshi import quotes, volume
 from ..fees import taker_fee
 from .base import Candidate, Strategy
 
@@ -64,7 +64,11 @@ def build_dist(code, day, hourly, obs_max, now_lst):
         return None
     if same_day:
         heat_hours_left = max(0.0, 16 - (now_lst.hour + now_lst.minute / 60))
-        sigma = max(0.8, config.SIGMA_SAME_DAY * min(1.0, heat_hours_left / 8))
+        if heat_hours_left <= 0:
+            # past the afternoon peak: the observed high is very nearly final
+            sigma = 0.4
+        else:
+            sigma = max(0.8, config.SIGMA_SAME_DAY * min(1.0, heat_hours_left / 8))
         mu = max(remaining) if remaining else obs_max - 3
         return HighTempDist(mu, sigma, floor=obs_max)
     if not remaining:
@@ -131,8 +135,7 @@ class WeatherStrategy(Strategy):
             p = probs[m["ticker"]]
             if p is None or m.get("result") or (m.get("status") or "active") not in ("active", "open"):
                 continue
-            vol = m.get("volume_24h") or m.get("volume") or 0
-            if float(vol) < config.MIN_VOLUME:
+            if volume(m) < config.MIN_VOLUME:
                 continue
             yb, ya, nb, na = quotes(m)
             for side, prob, ask, bid in (("yes", p, ya, yb), ("no", 1 - p, na, nb)):

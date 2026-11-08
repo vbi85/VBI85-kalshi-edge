@@ -14,20 +14,22 @@ from datetime import datetime, timezone
 
 from .. import config, db
 from ..fees import taker_fee
-from ..kalshi import px, quotes
+from ..kalshi import px, quotes, volume
 from .base import Candidate, Strategy
 
 
 def norm_word(m):
     """The term being traded, normalized. Prefer explicit strike fields over titles."""
+    raw = m.get("yes_sub_title") or ""
     cs = m.get("custom_strike")
-    if isinstance(cs, dict) and cs:
-        raw = " ".join(str(v) for v in cs.values())
-    else:
-        raw = m.get("yes_sub_title") or m.get("subtitle") or ""
-        if not raw:
-            q = re.search(r'["“](.+?)["”]', m.get("title") or "")
-            raw = q.group(1) if q else ""
+    if not raw and isinstance(cs, dict):
+        # skip hidden id fields (e.g. structured_*_id) so words match across events
+        raw = " ".join(str(v) for k, v in cs.items() if "id" not in k.lower())
+    if not raw:
+        raw = m.get("subtitle") or ""
+    if not raw:
+        q = re.search(r'["“](.+?)["”]', m.get("title") or "")
+        raw = q.group(1) if q else ""
     return re.sub(r"[^a-z0-9 ]+", "", raw.lower()).strip()
 
 
@@ -145,8 +147,7 @@ class MentionsStrategy(Strategy):
                 continue
             if self._too_late(m):
                 continue
-            vol = m.get("volume_24h") or m.get("volume") or 0
-            if float(vol) < config.MIN_VOLUME:
+            if volume(m) < config.MIN_VOLUME:
                 continue
             word = norm_word(m)
             p = hist.prob(word)
