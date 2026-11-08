@@ -150,3 +150,28 @@ def volume(market):
             except (TypeError, ValueError):
                 continue
     return 0.0
+
+
+def _num(market, *keys):
+    for k in keys:
+        v = market.get(k)
+        if v not in (None, ""):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def ask_size(market, side):
+    """Contracts for sale at the best ask. A NO ask is the other side of a YES bid."""
+    if side == "yes":
+        return _num(market, "yes_ask_size_fp", "yes_ask_size")
+    return _num(market, "no_ask_size_fp", "no_ask_size", "yes_bid_size_fp", "yes_bid_size")
+
+
+def bid_size(market, side):
+    """Contracts someone will buy at the best bid."""
+    if side == "yes":
+        return _num(market, "yes_bid_size_fp", "yes_bid_size")
+    return _num(market, "no_bid_size_fp", "no_bid_size", "yes_ask_size_fp", "yes_ask_size")

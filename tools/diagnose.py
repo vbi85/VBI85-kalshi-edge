@@ -13,7 +13,7 @@ from app.strategies.weather import WeatherStrategy  # noqa: E402
 c = KalshiClient()
 w = WeatherStrategy()
 print("== WEATHER ==")
-for code in config.WEATHER_CITIES:
+for code in (list(nws.CITIES) if config.WEATHER_CITIES in (["ALL"], ["all"]) else config.WEATHER_CITIES):
     series = nws.CITIES[code][0]
     try:
         ms = c.markets(series_ticker=series, status="open")

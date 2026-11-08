@@ -52,7 +52,9 @@ MAX_DISAGREE = _f("MAX_DISAGREE", 0.30)
 SIGMA_NEXT_DAY = _f("SIGMA_NEXT_DAY", 2.6)
 SIGMA_SAME_DAY = _f("SIGMA_SAME_DAY", 2.0)
 WEATHER_CITIES = [c.strip() for c in os.getenv(
-    "WEATHER_CITIES", "NYC,CHI,MIA,AUS,LAX,DEN,PHIL").split(",") if c.strip()]
+    "WEATHER_CITIES", "ALL").split(",") if c.strip()]
+# Market's center vs our forecast center: a gap this big usually means a wrong station/day.
+MAX_MEAN_GAP = _f("MAX_MEAN_GAP", 4.0)
 
 # ---- Mentions model -----------------------------------------------------
 # Optional fixed list of series tickers; blank = auto-discover "mention"/"say" series.
@@ -84,9 +86,9 @@ LIVE_PIN = os.getenv("LIVE_PIN", "")
 # ---- Logging / alerts ---------------------------------------------------
 SHEETS_WEBHOOK_URL = os.getenv("SHEETS_WEBHOOK_URL", "")
 SHEETS_WEBHOOK_SECRET = os.getenv("SHEETS_WEBHOOK_SECRET", "")
-ALERT_GMAIL = os.getenv("ALERT_GMAIL", "")
-ALERT_GMAIL_APP_PASSWORD = os.getenv("ALERT_GMAIL_APP_PASSWORD", "")
-ALERT_SMS_ADDRESS = os.getenv("ALERT_SMS_ADDRESS", "")   # e.g. 4145551234@tmomail.net
+ALERT_TZ = os.getenv("ALERT_TZ", "America/Chicago")
+SUMMARY_HOUR = _i("SUMMARY_HOUR", 7)                    # morning email at/after this local hour
+DASH_URL = os.getenv("DASH_URL", "http://165.245.194.132:8090")
 
 # ---- Dashboard ----------------------------------------------------------
 DASH_USER = os.getenv("DASH_USER", "burt")

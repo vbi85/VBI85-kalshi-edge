@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from .. import config, db
 from ..fees import taker_fee
-from ..kalshi import px, quotes, volume
+from ..kalshi import ask_size, px, quotes, volume
 from .base import Candidate, Strategy
 
 
@@ -188,7 +188,8 @@ class MentionsStrategy(Strategy):
                                  round(prob, 4), ask, round(mid, 4),
                                  notes=f'"{word}" said {h}/{c} past events',
                                  max_stake=config.MENTION_MAX_PER_TRADE,
-                                 min_edge=config.MENTION_MIN_EDGE)
+                                 min_edge=config.MENTION_MIN_EDGE,
+                                 ask_size=ask_size(m, side))
                 if best is None or edge > best[0]:
                     best = (edge, cand)
         return best[1] if best else None

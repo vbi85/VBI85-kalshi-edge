@@ -16,6 +16,21 @@ CITIES = {
     "LAX":  ("KXHIGHLAX",  "KLAX", 33.9382, -118.3866, -8),  # airport, not downtown
     "DEN":  ("KXHIGHDEN",  "KDEN", 39.8466, -104.6562, -7),
     "PHIL": ("KXHIGHPHIL", "KPHL", 39.8733, -75.2268, -5),
+    "PHX":  ("KXHIGHTPHX", "KPHX", 33.4342, -112.0116, -7),
+    "HOU":  ("KXHIGHTHOU", "KHOU", 29.6454, -95.2789, -6),   # Hobby, not Bush/IAH
+    "MIN":  ("KXHIGHTMIN", "KMSP", 44.8848, -93.2223, -6),
+    "OKC":  ("KXHIGHTOKC", "KOKC", 35.3931, -97.6007, -6),
+    "SFO":  ("KXHIGHTSFO", "KSFO", 37.6190, -122.3749, -8),
+    "DC":   ("KXHIGHTDC",  "KDCA", 38.8483, -77.0341, -5),   # Reagan National
+    "BOS":  ("KXHIGHTBOS", "KBOS", 42.3606, -71.0097, -5),
+    "DAL":  ("KXHIGHTDAL", "KDFW", 32.8998, -97.0403, -6),   # DFW, not Love Field
+    "SEA":  ("KXHIGHTSEA", "KSEA", 47.4447, -122.3136, -8),
+    "LV":   ("KXHIGHTLV",  "KLAS", 36.0719, -115.1634, -8),
+    "ATL":  ("KXHIGHTATL", "KATL", 33.6407, -84.4277, -5),
+    "NOLA": ("KXHIGHTNOLA", "KMSY", 29.9934, -90.2580, -6),
+    "SAN":  ("KXHIGHTSAN", "KSAN", 32.7336, -117.1831, -8),
+    "SDF":  ("KXHIGHTSDF", "KSDF", 38.1740, -85.7365, -5),
+    "EWR":  ("KXHIGHTEWR", "KEWR", 40.6925, -74.1687, -5),
 }
 
 _points_cache = {}

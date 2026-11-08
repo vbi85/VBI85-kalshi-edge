@@ -9,7 +9,7 @@ import re
 from datetime import date, timedelta, timezone
 
 from .. import config, db, nws
-from ..kalshi import quotes, volume
+from ..kalshi import ask_size, quotes, volume
 from ..fees import taker_fee
 from .base import Candidate, Strategy
 
@@ -76,6 +76,28 @@ def build_dist(code, day, hourly, obs_max, now_lst):
     return HighTempDist(max(remaining), config.SIGMA_NEXT_DAY)
 
 
+def market_center(markets):
+    """The temperature the market expects, from bracket mid-prices."""
+    tot = w = 0.0
+    for m in markets:
+        yb, ya, _, _ = quotes(m)
+        if ya is None:
+            continue
+        mid = (ya + (yb or 0)) / 2
+        st, fl, cp = (m.get("strike_type") or "").lower(), m.get("floor_strike"), m.get("cap_strike")
+        if st == "between" and fl is not None and cp is not None:
+            t = (fl + cp) / 2
+        elif st == "greater" and fl is not None:
+            t = fl + 2
+        elif st == "less" and cp is not None:
+            t = cp - 2
+        else:
+            continue
+        tot += t * mid
+        w += mid
+    return tot / w if w > 0.2 else None
+
+
 class WeatherStrategy(Strategy):
     name = "weather"
 
@@ -99,7 +121,8 @@ class WeatherStrategy(Strategy):
     def scan(self, client):
         self._dist_cache = {}
         out = []
-        for code in config.WEATHER_CITIES:
+        cities = list(nws.CITIES) if config.WEATHER_CITIES in (["ALL"], ["all"]) else config.WEATHER_CITIES
+        for code in cities:
             if code not in nws.CITIES:
                 continue
             series = nws.CITIES[code][0]
@@ -130,6 +153,11 @@ class WeatherStrategy(Strategy):
         if len(known) == len(markets) and len(markets) >= 3 and abs(sum(known) - 1) > 0.10:
             db.log(f"weather {ev}: bracket probs sum to {sum(known):.2f}, skipping", "warn")
             return []
+        implied = market_center(markets)
+        center = max(dist.mu, dist.floor) if dist.floor is not None else dist.mu
+        if implied is not None and abs(implied - center) > config.MAX_MEAN_GAP:
+            db.log(f"weather {ev}: market centers {implied:.0f}F, we say {center:.0f}F, skipping", "warn")
+            return []
         best = None
         for m in markets:
             p = probs[m["ticker"]]
@@ -149,7 +177,8 @@ class WeatherStrategy(Strategy):
                     continue      # huge disagreement = our model is probably wrong
                 c = Candidate(self.name, m["ticker"], ev, m.get("title") or m.get("subtitle") or m["ticker"],
                               side, round(prob, 4), ask, round(mid, 4),
-                              notes=f"mu={dist.mu:.1f} sd={dist.sigma:.1f} obs={dist.floor}")
+                              notes=f"mu={dist.mu:.1f} sd={dist.sigma:.1f} obs={dist.floor}",
+                              ask_size=ask_size(m, side))
                 if best is None or edge > best[0]:
                     best = (edge, c)
         return [best[1]] if best else []

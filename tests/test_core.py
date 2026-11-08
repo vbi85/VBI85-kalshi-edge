@@ -197,6 +197,58 @@ def test_disagreement_cap_blocks_wild_edges():
         config.MAX_DISAGREE = old
 
 
+def test_fill_capped_to_book_size():
+    off = nws.CITIES["CHI"][4]
+    day = (datetime.now(timezone.utc) + timedelta(hours=off)).date() + timedelta(days=4)
+    start, _ = nws.climate_day_bounds_utc(day, off)
+    nws.hourly_forecast = lambda code: [(start + timedelta(hours=h), 40 + (16 if h == 15 else h % 10)) for h in range(24)]
+    fc = FakeClient(day)
+    for m in fc.ms.values():
+        m["yes_ask_size_fp"] = "3.00"      # only 3 YES for sale
+        m["yes_bid_size_fp"] = "4.00"      # => only 4 NO for sale
+    assert engine.run_once(fc, [weather.WeatherStrategy()]) == 1
+    p = db.open_positions("paper")[0]
+    assert p["count"] <= 4, p["count"]
+    print("capped fill:", p["side"], p["count"])
+    # paper exit blocked when buyers can't absorb the position
+    m = fc.ms[p["ticker"]]
+    jump = int((p["entry_price"] + config.TAKE_PROFIT + 0.05) * 100)
+    m["no_bid"], m["no_ask"], m["yes_bid"], m["yes_ask"] = jump, jump + 2, 100 - jump - 2, 100 - jump
+    m["yes_ask_size_fp"] = "1.00"          # only 1 NO buyer
+    m["yes_bid_size_fp"] = "1.00"
+    engine.run_once(fc, [weather.WeatherStrategy()])
+    assert db.open_positions("paper")[0]["status"] == "open"
+
+
+def test_wrong_station_guard():
+    ms = [{"ticker": "KXHIGHTEST-26NOV20-L", "strike_type": "less", "cap_strike": 70, "yes_ask": 5, "yes_bid": 3}]
+    ms += [{"ticker": f"KXHIGHTEST-26NOV20-B{f}", "strike_type": "between", "floor_strike": f, "cap_strike": f + 1,
+            "yes_ask": a, "yes_bid": a - 2} for f, a in ((70, 20), (72, 50), (74, 20))]
+    ms += [{"ticker": "KXHIGHTEST-26NOV20-G", "strike_type": "greater", "floor_strike": 75, "yes_ask": 5, "yes_bid": 3}]
+    c = weather.market_center(ms)
+    assert 71 < c < 74, c
+    d = weather.HighTempDist(60.0, 2.0)          # we think ~60F, market thinks ~72F
+    db.log("guard-test-marker")
+    assert weather.WeatherStrategy()._evaluate_event("KXHIGHTEST-26NOV20", ms, d) == []
+    with db.conn() as conn:
+        last = conn.execute("SELECT msg FROM events ORDER BY id DESC LIMIT 1").fetchone()[0]
+    assert "market centers" in last, last
+
+
+def test_precap_excluded_and_summary():
+    db.insert_position(dict(mode="paper", strategy="weather", ticker="T-1", event_ticker="E-PRE",
+                            title="t", side="no", count=1, entry_price=0.5, entry_fee=0.01,
+                            model_prob=0.9, market_prob=0.5, edge=0.3, opened_at=db.now(),
+                            status="closed", pnl=-100.0, closed_at=db.now(), outcome=0,
+                            notes="x | PRE-CAP TEST"))
+    s = gate.stats("paper", "weather")
+    assert s["pnl"] > -50, s                # the -$100 test trade is not counted
+    from app import summary
+    subj, body = summary.build()
+    assert "Weather" in body and "go-live" in body
+    print("summary subject:", subj)
+
+
 def test_live_gate_is_per_strategy():
     db.set_setting("mode", "live")
     assert gate.mode_for("weather") == "paper"              # armed, but no strategy has earned it

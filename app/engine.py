@@ -2,7 +2,7 @@
 from . import config, db, notify, risk
 from .broker import LiveBroker, PaperBroker
 from .fees import taker_fee
-from .kalshi import quotes
+from .kalshi import bid_size, quotes
 
 
 def _settled_result(m):
@@ -52,6 +52,10 @@ def manage(client, broker, strategies, mode, path=None):
             reason = "take_profit"
         elif fv is not None and net >= fv + 0.02:
             reason = "market_above_model"   # someone pays more than it's worth -> sell
+        if reason and broker.mode == "paper":
+            bsz = bid_size(m, p["side"])
+            if bsz is not None and bsz < p["count"]:
+                reason = None                     # not enough buyers at this price: hold instead
         if reason:
             fill = broker.sell(p["ticker"], p["side"], p["count"], bid)
             if fill.count == p["count"]:
@@ -97,6 +101,8 @@ def enter(cands_by_strategy, brokers, mode_for, path=None):
             if not ok:
                 continue
             n = risk.size(c.model_prob, c.ask, mode, path, cap=c.max_stake)
+            if c.ask_size is not None:
+                n = min(n, int(c.ask_size))      # can't buy more than is for sale at this price
             if n < 1:
                 continue
             edge = c.model_prob - (c.ask + taker_fee(c.ask, n) / n)

@@ -4,7 +4,7 @@ Trades only where the market price is clearly wrong after fees. No crypto, no fi
 
 | Phase | Category | Status |
 |---|---|---|
-| 1 | Weather (daily high temp, 7 cities) | **Built, paper mode** |
+| 1 | Weather (daily high temp, 22 cities) | **Built, paper mode** |
 | 1 | Mentions (word base rates from Kalshi's own settled history) | **Built, paper mode** |
 | 2 | Sports (Kalshi vs sportsbook consensus) | Next build |
 
@@ -14,6 +14,7 @@ Trades only where the market price is clearly wrong after fees. No crypto, no fi
 3. Buy only if our probability beats the price by **8¢+ after fees**, price between 10¢ and 85¢, 50+ volume.
 4. Exit: sell at **+12¢**, or sell if the market pays more than our model says it's worth, otherwise hold to settlement (next morning).
 5. One position per city-day, ever. Max $10/trade, $60 open, $20 daily loss stop.
+6. Safety: skips when model and market disagree by 30+ points, when the market's center is 4°F+ from ours (wrong-station guard), and never buys more than is actually for sale.
 
 ## How a Mentions trade happens
 1. Finds "what will X say" series automatically. Skips anything with EARNINGS, FED, FOMC, CEO, STOCK, CRYPTO in the name.
@@ -35,9 +36,13 @@ Then: PIN on the dashboard → Live. Only strategies that pass every test trade 
    ```
 3. Open `http://<droplet-ip>:8090` in Chrome on your Android, log in, tap ⋮ → **Add to Home screen**.
 
-## Google Sheet log
+## Updating (every future change)
+In the DigitalOcean droplet console: `cd /opt/kalshi-edge && bash deploy/update.sh`
+
+## Google Sheet log + email alerts
 Sheet: "Kalshi Edge — Trade Log" (Trades + Summary tabs already built).
-Extensions → Apps Script → paste `apps_script/Code.gs`, set the SECRET → Deploy → Web app (Execute as Me, Anyone) → paste the URL into `SHEETS_WEBHOOK_URL`.
+Extensions → Apps Script → paste `apps_script/Code.gs` → run `setup` (copy the SECRET from the log) → Deploy → Web app (Execute as Me, Anyone) → copy the URL.
+Then on the droplet: `bash deploy/set-alerts.sh` and paste both. You get: trade rows in the Sheet, a 7am summary email, error emails, and a "BOT IS DOWN" email if heartbeats stop (works even if the droplet is off).
 
 ## Before real money
 Set `KALSHI_ENV=demo` with a demo API key for one day to prove orders fill and cancel correctly. Then back to `prod`.

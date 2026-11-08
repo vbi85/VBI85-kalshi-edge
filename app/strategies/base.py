@@ -16,6 +16,7 @@ class Candidate:
     notes: str = ""
     max_stake: Optional[float] = None   # per-strategy cap (dollars); None = global
     min_edge: Optional[float] = None    # per-strategy edge floor; None = global
+    ask_size: Optional[float] = None    # contracts actually for sale at `ask`
 
 
 class Strategy:
