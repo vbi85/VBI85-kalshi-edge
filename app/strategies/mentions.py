@@ -10,6 +10,7 @@ Guards:
   the history-based number is stale once people are actually talking).
 - Half the normal size and a higher edge bar. Weakest data of all strategies."""
 import re
+import time
 from datetime import datetime, timezone
 
 from .. import config, db
@@ -85,7 +86,8 @@ class MentionsStrategy(Strategy):
     name = "mentions"
 
     def __init__(self):
-        self._hist = {}           # series_ticker -> History (refreshed each scan)
+        self._hist = {}           # series_ticker -> (History, fetched_at)
+        self._active = None       # (list of series with open markets, fetched_at)
 
     # ---- discovery ------------------------------------------------------
     def series(self, client):
@@ -102,17 +104,35 @@ class MentionsStrategy(Strategy):
             db.log(f"mentions: series discovery failed: {e}", "warn")
         return out
 
+    def _fresh(self, ts):
+        return time.time() - ts < config.MENTION_REFRESH_HOURS * 3600
+
     def history(self, client, series_ticker):
-        if series_ticker not in self._hist:
+        h = self._hist.get(series_ticker)
+        if not h or not self._fresh(h[1]):
             settled = client.markets(series_ticker=series_ticker, status="settled", max_pages=5)
-            self._hist[series_ticker] = History(settled)
-        return self._hist[series_ticker]
+            self._hist[series_ticker] = (History(settled), time.time())
+        return self._hist[series_ticker][0]
+
+    def active_series(self, client):
+        """Series that currently have open markets. Full sweep only every few hours."""
+        if self._active and self._fresh(self._active[1]):
+            return self._active[0]
+        act = []
+        for st in self.series(client):
+            try:
+                if client.markets(series_ticker=st, status="open", max_pages=1):
+                    act.append(st)
+            except Exception as e:
+                db.log(f"mentions {st}: {e}", "warn")
+        db.log(f"mentions: {len(act)} active series (rechecked every {config.MENTION_REFRESH_HOURS:g}h)")
+        self._active = (act, time.time())
+        return act
 
     # ---- scanning -------------------------------------------------------
     def scan(self, client):
-        self._hist = {}
         out = []
-        for st in self.series(client):
+        for st in self.active_series(client):
             try:
                 live = client.markets(series_ticker=st, status="open")
                 if not live:
@@ -123,7 +143,7 @@ class MentionsStrategy(Strategy):
                 continue
             by_event = {}
             for m in live:
-                if is_financial(m.get("title"), m.get("event_ticker")):
+                if is_financial(m.get("title"), m.get("event_ticker"), m.get("yes_sub_title")):
                     continue
                 by_event.setdefault(m.get("event_ticker"), []).append(m)
             for ev, ms in by_event.items():
@@ -180,9 +200,10 @@ class MentionsStrategy(Strategy):
         if self._too_late(market):
             return None
         st = position["ticker"].split("-")[0]
-        hist = self._hist.get(st)
-        if hist is None:
+        h = self._hist.get(st)
+        if h is None:
             return None
+        hist = h[0]
         p = hist.prob(norm_word(market))
         if p is None:
             return None

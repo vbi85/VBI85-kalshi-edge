@@ -59,13 +59,14 @@ WEATHER_CITIES = [c.strip() for c in os.getenv(
 MENTION_SERIES = [s.strip() for s in os.getenv("MENTION_SERIES", "").split(",") if s.strip()]
 # Anything financial is excluded (you trade no financial markets).
 MENTION_EXCLUDE = [w.strip().upper() for w in os.getenv(
-    "MENTION_EXCLUDE", "EARNINGS,EARN,FOMC,FED,POWELL,CEO,STOCK,CRYPTO,BITCOIN,BTC,ETH,SOLANA,INVEST,NASDAQ,DOW,SP500,TSLA,NVDA,AAPL,MSFT,AMZN,META,GOOG,TARIFFRATE").split(",") if w.strip()]
+    "MENTION_EXCLUDE", "EARNINGS,EARN,FOMC,FED,POWELL,CEO,STOCK,CRYPTO,BITCOIN,BTC,ETH,DIVIDEND,SOLANA,INVEST,NASDAQ,DOW,SP500,TSLA,NVDA,AAPL,MSFT,AMZN,META,GOOG,TARIFFRATE").split(",") if w.strip()]
 MENTION_MIN_HISTORY = _i("MENTION_MIN_HISTORY", 4)      # past events with this exact word
 MENTION_PRIOR_WEIGHT = _f("MENTION_PRIOR_WEIGHT", 3)    # pulls thin history toward series average
 MENTION_MIN_HOURS = _f("MENTION_MIN_HOURS", 2)          # don't enter close to / during the event
 MENTION_MAX_MOVE = _f("MENTION_MAX_MOVE", 0.15)         # price jumped this much in 24h = event live, skip
 MENTION_MAX_PER_TRADE = _f("MENTION_MAX_PER_TRADE", 5)  # half size: weakest data of the set
 MENTION_MIN_EDGE = _f("MENTION_MIN_EDGE", 0.10)
+MENTION_REFRESH_HOURS = _f("MENTION_REFRESH_HOURS", 6)  # re-find active series / history this often
 
 ENABLED_STRATEGIES = [s.strip() for s in os.getenv(
     "ENABLED_STRATEGIES", "weather,mentions").split(",") if s.strip()]

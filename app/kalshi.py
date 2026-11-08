@@ -23,6 +23,8 @@ class KalshiClient:
             with open(path, "rb") as fh:
                 self._key = serialization.load_pem_private_key(fh.read(), password=None)
         self.s = requests.Session()
+        self._last = 0.0
+        self.min_interval = 0.2          # ~5 requests/sec: stay well under Kalshi's limits
 
     # ---- signing --------------------------------------------------------
     @property
@@ -49,11 +51,17 @@ class KalshiClient:
         headers = {"Content-Type": "application/json"}
         if signed:
             headers.update(self._headers(method, path))
-        for attempt in range(3):
+        for attempt in range(6):
+            wait = self.min_interval - (time.time() - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            if signed:
+                headers.update(self._headers(method, path))   # fresh timestamp each try
+            self._last = time.time()
             r = self.s.request(method, self.base_url + path, params=params, json=body,
                                headers=headers, timeout=20)
             if r.status_code == 429:
-                time.sleep(2 ** attempt)
+                time.sleep(min(30, 2 ** (attempt + 1)))
                 continue
             r.raise_for_status()
             return r.json() if r.content else {}
