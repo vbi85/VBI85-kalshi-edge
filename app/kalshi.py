@@ -1,5 +1,6 @@
 """Thin Kalshi REST client. Public reads need no key; orders need a signed key."""
 import base64
+import os
 import time
 import uuid
 from urllib.parse import urlparse
@@ -18,7 +19,7 @@ class KalshiClient:
         self.key_id = key_id if key_id is not None else config.KALSHI_KEY_ID
         self._key = None
         path = key_path if key_path is not None else config.KALSHI_PRIVATE_KEY_PATH
-        if path:
+        if path and os.path.exists(path):          # paper mode needs no key
             with open(path, "rb") as fh:
                 self._key = serialization.load_pem_private_key(fh.read(), password=None)
         self.s = requests.Session()
