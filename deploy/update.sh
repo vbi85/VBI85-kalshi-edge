@@ -25,3 +25,19 @@ systemctl daemon-reload
 systemctl restart kalshi-edge-bot kalshi-edge-dash
 sleep 3
 echo "bot: $(systemctl is-active kalshi-edge-bot)   dashboard: $(systemctl is-active kalshi-edge-dash)"
+# live check: can we read Kalshi's order book? (if not, paper trading would silently stop)
+venv/bin/python - <<'PY'
+from app.kalshi import KalshiClient, book_asks
+c = KalshiClient()
+ms = [m for m in c.markets(series_ticker="KXHIGHNY", status="open") if m.get("yes_bid_dollars") not in (None, "0.0000")]
+if not ms:
+    print("order book check: no active NYC market to test right now (fine)")
+else:
+    m = ms[0]
+    b = c.orderbook(m["ticker"])
+    a = book_asks(b, "yes")
+    if b["yes"] or b["no"]:
+        print(f"order book check OK: {m['ticker']} YES asks {a[:3]}")
+    else:
+        print("ORDER BOOK CHECK FAILED: empty book — tell Claude")
+PY

@@ -4,7 +4,7 @@ from functools import wraps
 
 from flask import Flask, Response, redirect, render_template_string, request
 
-from app import config, db, gate, risk
+from app import config, db, gate, labels, risk
 
 app = Flask(__name__)
 
@@ -41,6 +41,10 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:13px;letter-spacing:.08em;text-tra
 .ok{color:var(--up)}.no{color:var(--dn)}
 input,button{font:inherit;padding:10px;border-radius:8px;border:1px solid var(--line);background:#1a1a1a;color:var(--txt)}
 button{font-weight:700;cursor:pointer}button:disabled{opacity:.35}
+.head{font-weight:700;font-size:16px}
+.tag{font-size:10px;padding:1px 6px;border-radius:99px;background:#333;color:#bbb;vertical-align:middle}
+.bet{display:inline-block;margin-left:6px;font-size:12px;font-weight:700;padding:1px 8px;border-radius:6px}
+.bet.yes{background:#123d24;color:var(--up)}.bet.no{background:#3d1212;color:var(--dn)}
 .log{font-family:ui-monospace,monospace;font-size:12px;color:var(--dim);white-space:pre-wrap}
 </style></head><body>
 <h1>Kalshi Edge <span class="pill {{mode}}">{{mode|upper}}</span></h1>
@@ -69,17 +73,22 @@ button{font-weight:700;cursor:pointer}button:disabled{opacity:.35}
 </form>
 {% if msg %}<p class="no">{{msg}}</p>{% endif %}
 
-<h2>Open positions</h2>
-{% for p in open %}
-<div class="row">{{p.side|upper}} x{{p.count}} @ {{"%.2f"|format(p.entry_price)}} — {{p.title}}
-<small>{{p.strategy}} · {{p.ticker}} · model {{"%.0f%%"|format(p.model_prob*100)}} · edge {{"%.0f"|format(p.edge*100)}}¢ · {{p.notes}}</small></div>
-{% else %}<div class="row"><small>None</small></div>{% endfor %}
+{% macro pos(c) %}
+<div class="row">
+ <div class="head">{{c.head}} {% if c.test %}<span class="tag">TEST</span>{% endif %}</div>
+ <div>{{c.what}} <span class="bet {{'yes' if c.side=='YES' else 'no'}}">Bet {{c.side}}: {{c.bet}}</span></div>
+ <small>{{c.money}} · {{c.odds}}{% if c.extra %} · {{c.extra}}{% endif %}</small>
+ {% if c.status != 'open' %}<small><span class="{{'up' if (c.pnl or 0)>=0 else 'dn'}}">${{"%+.2f"|format(c.pnl or 0)}}</span> · {{c.exit_reason|replace('_',' ')}} · {{(c.closed_at or '')[5:16]|replace('T',' ')}}</small>{% endif %}
+</div>
+{% endmacro %}
+
+{% for name, label in [('weather','🌡 Weather'),('mentions','🎤 Mentions')] %}
+<h2>{{label}} — open ({{open_by[name]|length}})</h2>
+{% for c in open_by[name] %}{{ pos(c) }}{% else %}<div class="row"><small>None</small></div>{% endfor %}
+{% endfor %}
 
 <h2>Recent closed</h2>
-{% for p in closed %}
-<div class="row"><span class="{{'up' if p.pnl>=0 else 'dn'}}">${{"%+.2f"|format(p.pnl)}}</span> {{p.side|upper}} {{p.title}}
-<small>{{p.exit_reason}} · {{p.closed_at}}</small></div>
-{% else %}<div class="row"><small>None yet</small></div>{% endfor %}
+{% for c in closed %}{{ pos(c) }}{% else %}<div class="row"><small>None yet</small></div>{% endfor %}
 
 <h2>Activity</h2>
 <div class="row log">{% for e in events %}{{e.at[5:16]}} {{e.msg}}
@@ -119,8 +128,9 @@ def home():
         events = [dict(r) for r in c.execute("SELECT * FROM events ORDER BY id DESC LIMIT 25")]
     return render_template_string(
         PAGE, mode=mode, s=s, bank=risk.bankroll("paper"), gates=gates, passed=passed,
-        open=[r for r in rows if r["status"] == "open"],
-        closed=[r for r in rows if r["status"] != "open"][:15],
+        open_by={n: [labels.card(r) for r in rows if r["status"] == "open" and r["strategy"] == n]
+                 for n in ("weather", "mentions")},
+        closed=[labels.card(r) for r in rows if r["status"] != "open"][:15],
         events=events, last_run=(db.get_setting("last_run") or "")[:16].replace("T", " "),
         msg=request.args.get("msg"))
 

@@ -38,6 +38,16 @@ def test_observed_floor():
     assert d.prob_market({"strike_type": "less", "cap_strike": 58}) == 0.0
 
 
+def fake_book(m):
+    """Order book implied by a fake market's quotes (bids only, Kalshi style)."""
+    if "book" in m:
+        return m["book"]
+    sz = lambda k: float(m.get(k) or 1000)
+    yes = [(m["yes_bid"] / 100, sz("yes_bid_size_fp"))] if m.get("yes_bid") else []
+    no = [(m["no_bid"] / 100, sz("yes_ask_size_fp"))] if m.get("no_bid") else []
+    return {"yes": yes, "no": no}
+
+
 class FakeClient:
     can_trade = False
 
@@ -59,6 +69,9 @@ class FakeClient:
 
     def market(self, t):
         return self.ms[t]
+
+    def orderbook(self, t, depth=30):
+        return fake_book(self.ms[t])
 
 
 def test_full_paper_cycle(monkeypatch=None):
@@ -155,6 +168,9 @@ class FakeMentionClient:
     def market(self, t):
         return self.open[t]
 
+    def orderbook(self, t, depth=30):
+        return fake_book(self.open[t])
+
 
 def test_mentions():
     os.environ.pop("MENTION_SERIES", None)
@@ -218,6 +234,22 @@ def test_fill_capped_to_book_size():
     m["yes_bid_size_fp"] = "1.00"
     engine.run_once(fc, [weather.WeatherStrategy()])
     assert db.open_positions("paper")[0]["status"] == "open"
+
+
+def test_book_walk_multi_level():
+    from app.broker import walk
+    from app.kalshi import book_asks, parse_orderbook
+    book = parse_orderbook({"orderbook_fp": {
+        "yes_dollars": [["0.30", "5.00"], ["0.40", "5.00"]],
+        "no_dollars": [["0.50", "10.00"], ["0.55", "4.00"], ["0.58", "3.00"]]}})
+    asks = book_asks(book, "yes")              # 1 - NO bids, cheapest first
+    assert asks[0] == (0.42, 3.0) and asks[1] == (0.45, 4.0), asks
+    got, avg, fee, used = walk(asks, 12, limit=0.46, buying=True)
+    assert got == 7 and used == [(0.42, 3), (0.45, 4)], (got, used)   # stops before 0.50
+    assert abs(avg - (0.42 * 3 + 0.45 * 4) / 7) < 1e-4
+    got, avg, fee, used = walk(asks, 12, limit=0.50, buying=True)
+    assert got == 12 and used[-1] == (0.50, 5)
+    print("walk: 12 contracts over 3 levels, avg", avg, "fee", fee)
 
 
 def test_wrong_station_guard():

@@ -92,6 +92,11 @@ class KalshiClient:
     def market(self, ticker):
         return self._req("GET", f"/markets/{ticker}").get("market", {})
 
+    def orderbook(self, ticker, depth=30):
+        """{'yes': [(price, qty), ...best first], 'no': [...]} — BIDS only, as Kalshi sends them."""
+        data = self._req("GET", f"/markets/{ticker}/orderbook", params={"depth": depth})
+        return parse_orderbook(data)
+
     # ---- trading (signed) ----------------------------------------------
     def balance(self):
         return self._req("GET", "/portfolio/balance", signed=True)
@@ -175,3 +180,34 @@ def bid_size(market, side):
     if side == "yes":
         return _num(market, "yes_bid_size_fp", "yes_bid_size")
     return _num(market, "no_bid_size_fp", "no_bid_size", "yes_ask_size_fp", "yes_ask_size")
+
+
+def _levels(raw):
+    out = []
+    for lvl in raw or []:
+        try:
+            p, q = float(lvl[0]), float(lvl[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if p > 1:                      # old format: cents
+            p /= 100.0
+        if q > 0:
+            out.append((round(p, 4), q))
+    return sorted(out, key=lambda x: -x[0])        # best (highest) bid first
+
+
+def parse_orderbook(data):
+    ob = data.get("orderbook_fp") or data.get("orderbook") or {}
+    return {"yes": _levels(ob.get("yes_dollars") or ob.get("yes")),
+            "no": _levels(ob.get("no_dollars") or ob.get("no"))}
+
+
+def book_asks(book, side):
+    """Prices to BUY `side`, cheapest first. Buying YES = taking a NO bid at (1 - price)."""
+    other = book["no"] if side == "yes" else book["yes"]
+    return [(round(1 - p, 4), q) for p, q in other]
+
+
+def book_bids(book, side):
+    """Prices to SELL `side`, best first."""
+    return list(book[side])

@@ -2,7 +2,7 @@
 from . import config, db, notify, risk
 from .broker import LiveBroker, PaperBroker
 from .fees import taker_fee
-from .kalshi import bid_size, quotes
+from .kalshi import quotes
 
 
 def _settled_result(m):
@@ -34,6 +34,10 @@ def manage(client, broker, strategies, mode, path=None):
         except Exception as e:
             db.log(f'manage {p["ticker"]}: {e}', "warn", path)
             continue
+        if p["strategy"] == "weather" and "·" not in (p["title"] or ""):
+            from .labels import weather_title          # upgrade older, vague titles in place
+            p["title"] = weather_title(m, p["ticker"])
+            db.update_position(p["id"], path=path, title=p["title"])
         res = _settled_result(m)
         if res:
             won = 1 if res == p["side"] else 0
@@ -47,17 +51,15 @@ def manage(client, broker, strategies, mode, path=None):
         fv = strat.fair_value(p, m) if strat else None
         net = bid - taker_fee(bid, p["count"]) / p["count"]
         cost_each = p["entry_price"] + (p["entry_fee"] or 0) / p["count"]
-        reason = None
+        reason, floor = None, None
         if bid >= p["entry_price"] + config.TAKE_PROFIT and net > cost_each:
             reason = "take_profit"
+            floor = round(cost_each + 0.02, 2)   # never sell any level at a loss
         elif fv is not None and net >= fv + 0.02:
-            reason = "market_above_model"   # someone pays more than it's worth -> sell
-        if reason and broker.mode == "paper":
-            bsz = bid_size(m, p["side"])
-            if bsz is not None and bsz < p["count"]:
-                reason = None                     # not enough buyers at this price: hold instead
+            reason = "market_above_model"        # someone pays more than it's worth -> sell
+            floor = round(fv + 0.01, 2)          # but not below what we think it's worth
         if reason:
-            fill = broker.sell(p["ticker"], p["side"], p["count"], bid)
+            fill = broker.sell(p["ticker"], p["side"], p["count"], bid, min_price=floor)
             if fill.count == p["count"]:
                 _close(p, fill.price, fill.fee, reason, path=path)
             elif fill.count:
@@ -91,6 +93,16 @@ def scan_all(client, strategies, path=None):
     return out
 
 
+def price_limit(model_prob, count, min_edge):
+    """Highest price (whole cents) that still leaves `min_edge` after the taker fee."""
+    best = None
+    for cents in range(1, 100):
+        p = cents / 100
+        if model_prob - (p + taker_fee(p, count) / count) >= min_edge:
+            best = p
+    return best
+
+
 def enter(cands_by_strategy, brokers, mode_for, path=None):
     opened = 0
     for name, cands in cands_by_strategy.items():
@@ -101,21 +113,25 @@ def enter(cands_by_strategy, brokers, mode_for, path=None):
             if not ok:
                 continue
             n = risk.size(c.model_prob, c.ask, mode, path, cap=c.max_stake)
-            if c.ask_size is not None:
-                n = min(n, int(c.ask_size))      # can't buy more than is for sale at this price
             if n < 1:
                 continue
-            edge = c.model_prob - (c.ask + taker_fee(c.ask, n) / n)
-            if edge < (c.min_edge if c.min_edge is not None else config.MIN_EDGE):
+            min_edge = c.min_edge if c.min_edge is not None else config.MIN_EDGE
+            max_price = price_limit(c.model_prob, n, min_edge)
+            if max_price is not None:
+                max_price = min(max_price, config.MAX_PRICE)
+            if max_price is None or max_price < c.ask:
                 continue
-            fill = broker.buy(c.ticker, c.side, n, c.ask)
+            # walks the book: best price first, then the next level, never above max_price
+            fill = broker.buy(c.ticker, c.side, n, c.ask, max_price=max_price)
             if fill.count < 1:
                 continue
+            edge = c.model_prob - (fill.price + fill.fee / fill.count)
             p = dict(mode=mode, strategy=c.strategy, ticker=c.ticker, event_ticker=c.event_ticker,
                      title=c.title, side=c.side, count=fill.count, entry_price=fill.price,
                      entry_fee=fill.fee, model_prob=c.model_prob, market_prob=c.market_prob,
                      edge=round(edge, 4), opened_at=db.now(), status="open",
-                     order_id=fill.order_id, notes=c.notes)
+                     order_id=fill.order_id,
+                     notes=c.notes + (f" | filled {len(fill.levels)} price levels" if len(fill.levels) > 1 else ""))
             p["id"] = db.insert_position(p, path)
             notify.sheet_upsert(p)
             msg = (f'{mode.upper()} {c.strategy} BUY {c.ticker} {c.side} x{fill.count} @ {fill.price:.2f} '
@@ -140,7 +156,7 @@ class _LazyLive:
 
 def run_once(client, strategies, mode_for=None, path=None):
     mode_for = mode_for or (lambda name: "paper")
-    brokers = {"paper": PaperBroker(), "live": _LazyLive(client)}
+    brokers = {"paper": PaperBroker(client), "live": _LazyLive(client)}
     cands = scan_all(client, strategies, path)
     for mode in ("paper", "live"):
         manage(client, brokers[mode], strategies, mode, path)

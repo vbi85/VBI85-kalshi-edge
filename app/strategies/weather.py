@@ -175,7 +175,8 @@ class WeatherStrategy(Strategy):
                 mid = (ask + bid) / 2 if bid is not None else ask
                 if abs(prob - mid) > config.MAX_DISAGREE:
                     continue      # huge disagreement = our model is probably wrong
-                c = Candidate(self.name, m["ticker"], ev, m.get("title") or m.get("subtitle") or m["ticker"],
+                from ..labels import weather_title
+                c = Candidate(self.name, m["ticker"], ev, weather_title(m),
                               side, round(prob, 4), ask, round(mid, 4),
                               notes=f"mu={dist.mu:.1f} sd={dist.sigma:.1f} obs={dist.floor}",
                               ask_size=ask_size(m, side))
