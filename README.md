@@ -26,10 +26,10 @@ Trades only where the market price is clearly wrong after fees. No crypto, no fi
 Then: PIN on the dashboard → Live. Only strategies that pass every test trade real money; the rest keep paper trading. If a strategy later fails a test, it drops itself back to Paper.
 
 ## Install on the DigitalOcean droplet (separate from kalshi-scanner)
-1. Create private GitHub repo `VBI85/kalshi-edge`, upload this folder.
+1. Code lives at github.com/vbi85/VBI85-kalshi-edge.
 2. Open the **DigitalOcean droplet console** and run:
    ```
-   cd /opt && git clone https://github.com/VBI85/kalshi-edge.git && cd kalshi-edge
+   cd /opt && git clone https://github.com/vbi85/VBI85-kalshi-edge.git kalshi-edge && cd kalshi-edge
    cp .env.example .env && nano .env      # set DASH_PASSWORD and LIVE_PIN at minimum
    bash deploy/setup.sh
    ```
