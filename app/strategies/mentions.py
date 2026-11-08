@@ -162,6 +162,8 @@ class MentionsStrategy(Strategy):
                     continue
                 h, c = hist.count(word)
                 mid = (ask + bid) / 2 if bid is not None else ask
+                if abs(prob - mid) > config.MAX_DISAGREE:
+                    continue      # huge disagreement = our model is probably wrong
                 cand = Candidate(self.name, m["ticker"], ev, m.get("title") or word, side,
                                  round(prob, 4), ask, round(mid, 4),
                                  notes=f'"{word}" said {h}/{c} past events',

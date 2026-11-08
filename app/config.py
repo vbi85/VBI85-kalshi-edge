@@ -44,6 +44,8 @@ MAX_PRICE = _f("MAX_PRICE", 0.85)        # skip pennies-in-front-of-steamroller
 TAKE_PROFIT = _f("TAKE_PROFIT", 0.12)    # sell when bid is this far above entry
 FEE_RATE = _f("FEE_RATE", 0.07)          # Kalshi taker fee multiplier
 MIN_VOLUME = _i("MIN_VOLUME", 50)        # skip dead markets
+# If our model disagrees with the market by more than this, assume WE are wrong and skip.
+MAX_DISAGREE = _f("MAX_DISAGREE", 0.30)
 
 # ---- Weather model ------------------------------------------------------
 # Forecast error (std dev, deg F) by how far out the settlement day is.
@@ -57,7 +59,7 @@ WEATHER_CITIES = [c.strip() for c in os.getenv(
 MENTION_SERIES = [s.strip() for s in os.getenv("MENTION_SERIES", "").split(",") if s.strip()]
 # Anything financial is excluded (you trade no financial markets).
 MENTION_EXCLUDE = [w.strip().upper() for w in os.getenv(
-    "MENTION_EXCLUDE", "EARNINGS,EARN,FOMC,FED,POWELL,CEO,STOCK,CRYPTO,BITCOIN").split(",") if w.strip()]
+    "MENTION_EXCLUDE", "EARNINGS,EARN,FOMC,FED,POWELL,CEO,STOCK,CRYPTO,BITCOIN,BTC,ETH,SOLANA,INVEST,NASDAQ,DOW,SP500,TSLA,NVDA,AAPL,MSFT,AMZN,META,GOOG,TARIFFRATE").split(",") if w.strip()]
 MENTION_MIN_HISTORY = _i("MENTION_MIN_HISTORY", 4)      # past events with this exact word
 MENTION_PRIOR_WEIGHT = _f("MENTION_PRIOR_WEIGHT", 3)    # pulls thin history toward series average
 MENTION_MIN_HOURS = _f("MENTION_MIN_HOURS", 2)          # don't enter close to / during the event

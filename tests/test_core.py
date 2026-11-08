@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ["DB_PATH"] = tempfile.mktemp(suffix=".db")
 os.environ["WEATHER_CITIES"] = "CHI"
+os.environ["MAX_DISAGREE"] = "1.0"   # fixtures use big mispricings; cap tested separately
 
 from app import config, db, engine, fees, gate, nws  # noqa: E402
 from app.strategies import mentions, weather  # noqa: E402
@@ -178,6 +179,22 @@ def test_mentions():
     print("mentions settled P&L:", p["pnl"])
     ok, tests = gate.check("mentions")
     assert not ok
+
+
+def test_disagreement_cap_blocks_wild_edges():
+    off = nws.CITIES["CHI"][4]
+    day = (datetime.now(timezone.utc) + timedelta(hours=off)).date() + timedelta(days=3)
+    start, _ = nws.climate_day_bounds_utc(day, off)
+    nws.hourly_forecast = lambda code: [(start + timedelta(hours=h), 40 + (16 if h == 15 else h % 10)) for h in range(24)]
+    fc = FakeClient(day)
+    old = config.MAX_DISAGREE
+    config.MAX_DISAGREE = 0.30
+    try:
+        cands = weather.WeatherStrategy().scan(fc)
+        assert all(abs(c.model_prob - c.market_prob) <= 0.30 for c in cands), cands
+        print("candidates with cap:", [(c.ticker[-2:], c.side, c.model_prob, c.market_prob) for c in cands])
+    finally:
+        config.MAX_DISAGREE = old
 
 
 def test_live_gate_is_per_strategy():

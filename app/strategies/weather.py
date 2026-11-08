@@ -145,6 +145,8 @@ class WeatherStrategy(Strategy):
                 if edge < config.MIN_EDGE:
                     continue
                 mid = (ask + bid) / 2 if bid is not None else ask
+                if abs(prob - mid) > config.MAX_DISAGREE:
+                    continue      # huge disagreement = our model is probably wrong
                 c = Candidate(self.name, m["ticker"], ev, m.get("title") or m.get("subtitle") or m["ticker"],
                               side, round(prob, 4), ask, round(mid, 4),
                               notes=f"mu={dist.mu:.1f} sd={dist.sigma:.1f} obs={dist.floor}")
