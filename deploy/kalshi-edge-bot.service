@@ -1,0 +1,12 @@
+[Unit]
+Description=Kalshi Edge bot (weather/sports/mentions)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/kalshi-edge
+ExecStart=/opt/kalshi-edge/venv/bin/python run_bot.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

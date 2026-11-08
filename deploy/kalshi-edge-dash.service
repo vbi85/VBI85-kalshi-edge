@@ -1,0 +1,12 @@
+[Unit]
+Description=Kalshi Edge dashboard
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/kalshi-edge
+ExecStart=/opt/kalshi-edge/venv/bin/python dashboard.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
