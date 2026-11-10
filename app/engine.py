@@ -1,5 +1,5 @@
 """One pass of the bot: manage open positions, then look for new edges."""
-from . import config, db, notify, risk
+from . import calibrate, config, db, notify, risk
 from .broker import LiveBroker, PaperBroker
 from .fees import taker_fee
 from .kalshi import quotes
@@ -26,44 +26,73 @@ def _close(p, price, fee, reason, outcome=None, path=None):
         notify.text(msg)
 
 
+def decide_exit(p, bid, fv):
+    """Returns (reason, lowest acceptable sell price) or (None, None) to keep holding.
+    Order matters: protect against big losses first, then let winners run to fair value."""
+    entry, n = p["entry_price"], p["count"]
+    net = bid - taker_fee(bid, n) / n                 # what selling one contract nets after fee
+    cost_each = entry + (p["entry_fee"] or 0) / n
+    edge_left = None if fv is None else fv - net      # how much better holding is than selling
+
+    # 1. Hard stop: the position has lost half its value. Get out, whatever the model says.
+    if bid <= entry * (1 - config.HARD_STOP):
+        return "stop_hard", max(0.01, round(bid - 0.05, 2))
+    # 2. Down 15c: hold only if the (freshly updated) model still sees a big edge.
+    if bid <= entry - config.STOP_LOSS and (edge_left is None or edge_left < config.STOP_KEEP_EDGE):
+        return "stop_edge_gone", max(0.01, round(bid - 0.05, 2))
+    if fv is not None:
+        # 3. Winner: market has caught up to our forecast -> the edge is captured, take it.
+        if net >= fv - 0.01 and net > cost_each:
+            return "caught_up", round(max(cost_each + 0.01, fv - 0.03), 2)
+        # 4. Market pays more than it's worth to us (even at a loss) -> selling beats holding.
+        if net >= fv + 0.02:
+            return "market_above_model", round(fv + 0.01, 2)
+    # 5. Backup take-profit: up 12c and our remaining edge is small (or unknown).
+    if bid >= entry + config.TAKE_PROFIT and net > cost_each and (edge_left is None or edge_left < 0.05):
+        return "take_profit", round(cost_each + 0.02, 2)
+    return None, None
+
+
 def manage(client, broker, strategies, mode, path=None):
-    by_name = {s.name: s for s in strategies}
     for p in db.open_positions(mode, path):
         try:
-            m = client.market(p["ticker"])
-        except Exception as e:
-            db.log(f'manage {p["ticker"]}: {e}', "warn", path)
-            continue
-        if p["strategy"] == "weather" and "·" not in (p["title"] or ""):
-            from .labels import weather_title          # upgrade older, vague titles in place
-            p["title"] = weather_title(m, p["ticker"])
-            db.update_position(p["id"], path=path, title=p["title"])
-        res = _settled_result(m)
-        if res:
-            won = 1 if res == p["side"] else 0
-            _close(p, 1.0 if won else 0.0, 0.0, "settled", outcome=won, path=path)
-            continue
-        yb, ya, nb, na = quotes(m)
-        bid = yb if p["side"] == "yes" else nb
-        if not bid:
-            continue
-        strat = by_name.get(p["strategy"])
+            _manage_one(client, broker, {s.name: s for s in strategies}, p, path)
+        except Exception as e:                     # one bad position never stops the rest
+            db.log_once(f"manage:{p['ticker']}", f'manage {p["ticker"]} failed: {e}', "warn", path)
+
+
+def _manage_one(client, broker, by_name, p, path=None):
+    try:
+        m = client.market(p["ticker"])
+    except Exception as e:
+        db.log(f'manage {p["ticker"]}: {e}', "warn", path)
+        return
+    if p["strategy"] == "weather" and "·" not in (p["title"] or ""):
+        from .labels import weather_title          # upgrade older, vague titles in place
+        p["title"] = weather_title(m, p["ticker"])
+        db.update_position(p["id"], path=path, title=p["title"])
+    res = _settled_result(m)
+    if res:
+        won = 1 if res == p["side"] else 0
+        _close(p, 1.0 if won else 0.0, 0.0, "settled", outcome=won, path=path)
+        return
+    yb, ya, nb, na = quotes(m)
+    bid = yb if p["side"] == "yes" else nb
+    if not bid:
+        return
+    strat = by_name.get(p["strategy"])
+    try:
         fv = strat.fair_value(p, m) if strat else None
-        net = bid - taker_fee(bid, p["count"]) / p["count"]
-        cost_each = p["entry_price"] + (p["entry_fee"] or 0) / p["count"]
-        reason, floor = None, None
-        if bid >= p["entry_price"] + config.TAKE_PROFIT and net > cost_each:
-            reason = "take_profit"
-            floor = round(cost_each + 0.02, 2)   # never sell any level at a loss
-        elif fv is not None and net >= fv + 0.02:
-            reason = "market_above_model"        # someone pays more than it's worth -> sell
-            floor = round(fv + 0.01, 2)          # but not below what we think it's worth
-        if reason:
-            fill = broker.sell(p["ticker"], p["side"], p["count"], bid, min_price=floor)
-            if fill.count == p["count"]:
-                _close(p, fill.price, fill.fee, reason, path=path)
-            elif fill.count:
-                db.log(f'partial exit {p["ticker"]} {fill.count}/{p["count"]} — check Kalshi', "alert", path)
+    except Exception as e:                     # e.g. weather service down for this city
+        db.log_once(f"fv:{p['ticker']}", f'fair value unavailable for {p["ticker"]}: {e}', "warn", path)
+        fv = None
+    reason, floor = decide_exit(p, bid, fv)
+    if reason:
+        fill = broker.sell(p["ticker"], p["side"], p["count"], bid, min_price=floor)
+        if fill.count == p["count"]:
+            _close(p, fill.price, fill.fee, reason, path=path)
+        elif fill.count:
+            db.log(f'partial exit {p["ticker"]} {fill.count}/{p["count"]} — check Kalshi', "alert", path)
 
 
 def backfill_outcomes(client, path=None):
@@ -143,6 +172,21 @@ def enter(cands_by_strategy, brokers, mode_for, path=None):
     return opened
 
 
+MODEL_VERSION = 2
+
+
+def tag_old_model(path=None):
+    """Model v2 (daily forecast + city correction + new exits) restarts the go-live clock:
+    trades from the old model stay visible but no longer count toward the tests."""
+    if (db.get_setting("model_version", 1, path) or 1) >= MODEL_VERSION:
+        return
+    with db.conn(path) as c:
+        n = c.execute("UPDATE positions SET notes = COALESCE(notes,'') || ' | MODEL-V1' "
+                      "WHERE COALESCE(notes,'') NOT LIKE '%MODEL-V1%' AND COALESCE(notes,'') NOT LIKE '%PRE-CAP%'").rowcount
+    db.set_setting("model_version", MODEL_VERSION, path)
+    db.log(f"Model v2 active: {n} earlier trades tagged OLD MODEL; go-live clock restarts now.", "alert", path)
+
+
 class _LazyLive:
     """Only builds the live broker (and needs API keys) if something actually goes live."""
     def __init__(self, client):
@@ -157,8 +201,14 @@ class _LazyLive:
 def run_once(client, strategies, mode_for=None, path=None):
     mode_for = mode_for or (lambda name: "paper")
     brokers = {"paper": PaperBroker(client), "live": _LazyLive(client)}
+    tag_old_model(path)
     cands = scan_all(client, strategies, path)
     for mode in ("paper", "live"):
         manage(client, brokers[mode], strategies, mode, path)
     backfill_outcomes(client, path)
+    try:
+        calibrate.learn(client, path)
+    except Exception as e:
+        db.log_once("calibrate", f"calibration skipped: {e}", "warn", path)
+    db.prune(path)
     return enter(cands, brokers, mode_for, path)

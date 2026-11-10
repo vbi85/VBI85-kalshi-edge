@@ -91,3 +91,21 @@ def update_position(pid, path=None, **fields):
     sets = ",".join(f"{k}=?" for k in fields)
     with conn(path) as c:
         c.execute(f"UPDATE positions SET {sets} WHERE id=?", list(fields.values()) + [pid])
+
+
+def log_once(key, msg, level="warn", path=None):
+    """Log a repeating condition once per UTC day instead of every 10-minute pass."""
+    day = now()[:10]
+    k = f"logonce:{key}"
+    if get_setting(k, None, path) == day:
+        return False
+    set_setting(k, day, path)
+    log(msg, level, path)
+    return True
+
+
+def prune(path=None):
+    """Drop yesterday's once-per-day log markers so settings stay small."""
+    day = now()[:10]
+    with conn(path) as c:
+        c.execute("DELETE FROM settings WHERE k LIKE 'logonce:%' AND v != ?", (f'"{day}"',))

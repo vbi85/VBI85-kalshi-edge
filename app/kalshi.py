@@ -89,6 +89,10 @@ class KalshiClient:
                 return out
         return out
 
+    def event_markets(self, event_ticker):
+        """All markets of one event, any status (used to read settled results)."""
+        return self._req("GET", "/markets", params={"event_ticker": event_ticker, "limit": 100}).get("markets", [])
+
     def market(self, ticker):
         return self._req("GET", f"/markets/{ticker}").get("market", {})
 

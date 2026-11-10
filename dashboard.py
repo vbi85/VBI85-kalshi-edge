@@ -75,7 +75,7 @@ button{font-weight:700;cursor:pointer}button:disabled{opacity:.35}
 
 {% macro pos(c) %}
 <div class="row">
- <div class="head">{{c.head}} {% if c.test %}<span class="tag">TEST</span>{% endif %}</div>
+ <div class="head">{{c.head}} {% if c.test %}<span class="tag">{{c.test}}</span>{% endif %}</div>
  <div>{{c.what}} <span class="bet {{'yes' if c.side=='YES' else 'no'}}">Bet {{c.side}}: {{c.bet}}</span></div>
  <small>{{c.money}} · {{c.odds}}{% if c.extra %} · {{c.extra}}{% endif %}</small>
  {% if c.status != 'open' %}<small><span class="{{'up' if (c.pnl or 0)>=0 else 'dn'}}">${{"%+.2f"|format(c.pnl or 0)}}</span> · {{c.exit_reason|replace('_',' ')}} · {{(c.closed_at or '')[5:16]|replace('T',' ')}}</small>{% endif %}
@@ -89,6 +89,12 @@ button{font-weight:700;cursor:pointer}button:disabled{opacity:.35}
 
 <h2>Recent closed</h2>
 {% for c in closed %}{{ pos(c) }}{% else %}<div class="row"><small>None yet</small></div>{% endfor %}
+
+{% if corrections %}
+<h2>City corrections (learned)</h2>
+<div class="row"><small>{% for code, n, avg, b in corrections %}{{code}} {{"%+.1f"|format(b)}}°F ({{n}}d){% if not loop.last %} · {% endif %}{% endfor %}</small>
+<small>How far each city's forecast gets shifted, based on how far off NWS has been there. Grows as evidence builds.</small></div>
+{% endif %}
 
 <h2>Activity</h2>
 <div class="row log">{% for e in events %}{{e.at[5:16]}} {{e.msg}}
@@ -131,7 +137,7 @@ def home():
         open_by={n: [labels.card(r) for r in rows if r["status"] == "open" and r["strategy"] == n]
                  for n in ("weather", "mentions")},
         closed=[labels.card(r) for r in rows if r["status"] != "open"][:15],
-        events=events, last_run=(db.get_setting("last_run") or "")[:16].replace("T", " "),
+        events=events, corrections=__import__("app.calibrate", fromlist=["x"]).table(), last_run=(db.get_setting("last_run") or "")[:16].replace("T", " "),
         msg=request.args.get("msg"))
 
 

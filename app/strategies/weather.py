@@ -8,7 +8,7 @@ import math
 import re
 from datetime import date, timedelta, timezone
 
-from .. import config, db, nws
+from .. import calibrate, config, db, nws
 from ..kalshi import ask_size, quotes, volume
 from ..fees import taker_fee
 from .base import Candidate, Strategy
@@ -32,8 +32,10 @@ def phi(x):
 class HighTempDist:
     """P(final high <= k) for integer k."""
 
-    def __init__(self, mu, sigma, floor=None):
+    def __init__(self, mu, sigma, floor=None, raw_mu=None, bias=0.0, source="hourly"):
         self.mu, self.sigma, self.floor = mu, max(sigma, 0.5), floor
+        self.raw_mu = mu if raw_mu is None else raw_mu     # forecast before city correction
+        self.bias, self.source = bias, source
 
     def cdf(self, k):
         if self.floor is not None and k < self.floor:
@@ -53,27 +55,41 @@ class HighTempDist:
         return None
 
 
-def build_dist(code, day, hourly, obs_max, now_lst):
-    """Forecast distribution for the climate day `day` (local standard time)."""
+def build_dist(code, day, hourly, obs_max, now_lst, daily=None, bias=0.0):
+    """Forecast distribution for the climate day `day` (local standard time).
+    Base forecast = official NWS daily high when available (hourly max undershoots the
+    true peak by 1-3F), then shifted by the city's learned correction."""
     off = nws.CITIES[code][4]
     start, end = nws.climate_day_bounds_utc(day, off)
     now_utc = (now_lst - timedelta(hours=off)).replace(tzinfo=timezone.utc)
     remaining = [t for (ts, t) in hourly if start <= ts < end and ts >= now_utc]
     same_day = now_lst.date() == day
-    if not remaining and obs_max is None:
+    if not remaining and obs_max is None and daily is None:
         return None
     if same_day:
         heat_hours_left = max(0.0, 16 - (now_lst.hour + now_lst.minute / 60))
         if heat_hours_left <= 0:
             # past the afternoon peak: the observed high is very nearly final
             sigma = 0.4
+            base, src = (max(remaining), "hourly") if remaining else (obs_max - 3 if obs_max is not None else None, "obs")
         else:
             sigma = max(0.8, config.SIGMA_SAME_DAY * min(1.0, heat_hours_left / 8))
-        mu = max(remaining) if remaining else obs_max - 3
-        return HighTempDist(mu, sigma, floor=obs_max)
-    if not remaining:
+            if daily is not None:
+                base, src = daily, "daily"
+            elif remaining:
+                base, src = max(remaining), "hourly"
+            else:
+                base, src = (obs_max - 3 if obs_max is not None else None), "obs"
+        if base is None:
+            return None
+        return HighTempDist(base + bias, sigma, floor=obs_max, raw_mu=base, bias=bias, source=src)
+    if daily is not None:
+        base, src = daily, "daily"
+    elif remaining:
+        base, src = max(remaining), "hourly"
+    else:
         return None
-    return HighTempDist(max(remaining), config.SIGMA_NEXT_DAY)
+    return HighTempDist(base + bias, config.SIGMA_NEXT_DAY, raw_mu=base, bias=bias, source=src)
 
 
 def market_center(markets):
@@ -114,7 +130,13 @@ class WeatherStrategy(Strategy):
         if day and day >= now_lst.date():
             hourly = nws.hourly_forecast(code)
             obs = nws.observed_max_f(code, day) if day == now_lst.date() else None
-            dist = build_dist(code, day, hourly, obs, now_lst)
+            try:
+                daily = nws.daily_high(code, day)
+            except Exception:
+                daily = None                       # hourly still works without it
+            dist = build_dist(code, day, hourly, obs, now_lst, daily=daily, bias=calibrate.bias(code))
+            if dist and day > now_lst.date():
+                calibrate.record_forecast(event_ticker, code, dist.raw_mu)
         self._dist_cache[event_ticker] = dist
         return dist
 
@@ -129,7 +151,7 @@ class WeatherStrategy(Strategy):
             try:
                 markets = client.markets(series_ticker=series, status="open")
             except Exception as e:
-                db.log(f"weather {code}: market fetch failed: {e}", "warn")
+                db.log_once(f"wx-fetch:{code}", f"weather {code}: market fetch failed: {e}")
                 continue
             by_event = {}
             for m in markets:
@@ -138,7 +160,7 @@ class WeatherStrategy(Strategy):
                 try:
                     dist = self._dist_for_event(code, ev)
                 except Exception as e:
-                    db.log(f"weather {ev}: forecast failed: {e}", "warn")
+                    db.log_once(f"wx-fc:{ev}", f"weather {ev}: forecast failed (skipping this city for now): {e}")
                     continue
                 if not dist:
                     continue
@@ -151,13 +173,14 @@ class WeatherStrategy(Strategy):
         # Sanity check: brackets of one event must add to ~100%. If not, our reading of the
         # strike fields is wrong for this event -> refuse to trade it.
         if len(known) == len(markets) and len(markets) >= 3 and abs(sum(known) - 1) > 0.10:
-            db.log(f"weather {ev}: bracket probs sum to {sum(known):.2f}, skipping", "warn")
+            db.log_once(f"wx-sum:{ev}", f"weather {ev}: bracket probs sum to {sum(known):.2f}, skipping")
             return []
         implied = market_center(markets)
         center = max(dist.mu, dist.floor) if dist.floor is not None else dist.mu
         if implied is not None and abs(implied - center) > config.MAX_MEAN_GAP:
-            db.log(f"weather {ev}: market centers {implied:.0f}F, we say {center:.0f}F, skipping", "warn")
+            db.log_once(f"wx-gap:{ev}", f"weather {ev}: market centers {implied:.0f}F, we say {center:.0f}F, skipping")
             return []
+        favorite = max(markets, key=lambda m: (quotes(m)[1] or 0) + (quotes(m)[0] or 0))["ticker"]
         best = None
         for m in markets:
             p = probs[m["ticker"]]
@@ -169,6 +192,8 @@ class WeatherStrategy(Strategy):
             for side, prob, ask, bid in (("yes", p, ya, yb), ("no", 1 - p, na, nb)):
                 if ask is None or not (config.MIN_PRICE <= ask <= config.MAX_PRICE):
                     continue
+                if side == "no" and m["ticker"] == favorite and config.NO_FADE_FAVORITE:
+                    continue      # the crowd's top pick is its best-informed price: don't bet against it
                 edge = prob - (ask + taker_fee(ask, 10) / 10)
                 if edge < config.MIN_EDGE:
                     continue
@@ -178,7 +203,8 @@ class WeatherStrategy(Strategy):
                 from ..labels import weather_title
                 c = Candidate(self.name, m["ticker"], ev, weather_title(m),
                               side, round(prob, 4), ask, round(mid, 4),
-                              notes=f"mu={dist.mu:.1f} sd={dist.sigma:.1f} obs={dist.floor}",
+                              notes=(f"mu={dist.mu:.1f} sd={dist.sigma:.1f} obs={dist.floor} "
+                                     f"src={dist.source} bias={dist.bias:+.1f}"),
                               ask_size=ask_size(m, side))
                 if best is None or edge > best[0]:
                     best = (edge, c)

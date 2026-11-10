@@ -13,7 +13,8 @@ def brier(rows, key):
 
 
 def stats(mode="paper", strategy=None, path=None):
-    rows = [r for r in db.all_positions(mode, path) if "PRE-CAP" not in (r["notes"] or "")]
+    rows = [r for r in db.all_positions(mode, path)
+            if "PRE-CAP" not in (r["notes"] or "") and "MODEL-V1" not in (r["notes"] or "")]
     if strategy:
         rows = [r for r in rows if r["strategy"] == strategy]
     closed = [r for r in rows if r["status"] != "open"]

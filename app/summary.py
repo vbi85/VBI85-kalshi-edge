@@ -36,6 +36,12 @@ def build():
     for r in closed[:10]:
         lines.append(f"  {'+' if (r['pnl'] or 0) > 0 else '-'} ${r['pnl']:+.2f} {r['strategy']} "
                      f"{r['side'].upper()} {r['title'][:50]} ({r['exit_reason']})")
+    from . import calibrate
+    corr = calibrate.table()
+    if corr:
+        lines += ["", "City corrections (actual high minus forecast, learned daily):"]
+        for code, n, avg, b in sorted(corr, key=lambda x: -abs(x[3])):
+            lines.append(f"   {code}: {n} days, avg miss {avg:+.1f}F, correction now {b:+.1f}F")
     with db.conn() as c:
         errs = c.execute("SELECT COUNT(*) FROM events WHERE level IN ('error','warn') AND at >= ?",
                          (since,)).fetchone()[0]

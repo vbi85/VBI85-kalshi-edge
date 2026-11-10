@@ -16,6 +16,12 @@ Trades only where the market price is clearly wrong after fees. No crypto, no fi
 5. One position per city-day, ever. Max $10/trade, $60 open, $20 daily loss stop.
 6. Safety: skips when model and market disagree by 30+ points, when the market's center is 4°F+ from ours (wrong-station guard), and never buys more than is actually for sale.
 
+## Weather model v2 (Nov 9)
+- Forecast = official NWS daily high (hourly max ran 1-3°F cold), shifted by a per-city correction the bot learns from Kalshi's settled brackets (cautious: 1 day of data moves ~25%, capped ±3°F).
+- Never bets NO on the market's favorite bracket. Disagreement cap 20 points.
+- Exits: hold winners until the market reaches our fair value; at -15¢ re-check and exit unless 10¢+ edge remains; hard stop at half value.
+- Go-live clock restarted for v2; older trades are tagged OLD MODEL and excluded.
+
 ## How a Mentions trade happens
 1. Finds "what will X say" series automatically. Skips anything with EARNINGS, FED, FOMC, CEO, STOCK, CRYPTO in the name.
 2. Looks up how often each word was actually said in that series' past settled events (needs 4+).

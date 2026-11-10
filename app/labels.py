@@ -52,7 +52,8 @@ def card(p):
     notes = p.get("notes") or ""
     cost = p["entry_price"] * p["count"] + (p["entry_fee"] or 0)
     c = {
-        "strategy": p["strategy"], "test": "PRE-CAP" in notes, "pnl": p.get("pnl"),
+        "strategy": p["strategy"], "pnl": p.get("pnl"),
+        "test": "TEST" if "PRE-CAP" in notes else ("OLD MODEL" if "MODEL-V1" in notes else ""),
         "status": p["status"], "exit_reason": p.get("exit_reason"), "closed_at": p.get("closed_at"),
         "money": f'{p["count"]} × {p["entry_price"] * 100:.0f}¢ = ${cost:.2f}',
         "odds": f'our odds {p["model_prob"] * 100:.0f}% vs market {(p["market_prob"] or 0) * 100:.0f}%',
@@ -67,8 +68,10 @@ def card(p):
         mu = re.search(r"mu=([\d.]+)", notes)
         obs = re.search(r"obs=(\d+)", notes)
         extra = []
+        bias = re.search(r"bias=([+-][\d.]+)", notes)
         if mu:
-            extra.append(f"NWS forecast {float(mu.group(1)):.0f}°F")
+            b = float(bias.group(1)) if bias else 0.0
+            extra.append(f"forecast {float(mu.group(1)):.0f}°F" + (f" (incl. {b:+.0f}°F city correction)" if abs(b) >= 0.5 else ""))
         if obs:
             extra.append(f"already hit {obs.group(1)}°F today")
         c["extra"] = " · ".join(extra)

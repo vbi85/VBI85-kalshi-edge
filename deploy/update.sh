@@ -15,6 +15,8 @@ for line in open(".env.example"):
     if m and m.group(1) not in have:
         env += ("" if env.endswith("\n") else "\n") + line.rstrip("\n") + "\n"
         added.append(m.group(1))
+# model v2: tighter disagreement cap
+env = re.sub(r"^MAX_DISAGREE=0\.30[ \t]*$", "MAX_DISAGREE=0.20", env, flags=re.M)
 # the old 7-city default becomes ALL cities
 env = re.sub(r"^WEATHER_CITIES=NYC,CHI,MIA,AUS,LAX,DEN,PHIL[ \t]*$", "WEATHER_CITIES=ALL", env, flags=re.M)
 open(".env", "w").write(env)
@@ -25,6 +27,17 @@ systemctl daemon-reload
 systemctl restart kalshi-edge-bot kalshi-edge-dash
 sleep 3
 echo "bot: $(systemctl is-active kalshi-edge-bot)   dashboard: $(systemctl is-active kalshi-edge-dash)"
+# live check: official NWS daily high forecast (model v2 uses it)
+venv/bin/python - <<'PY'
+from datetime import timedelta
+from app import nws
+for code in ("CHI", "MIA", "LAX"):
+    day = nws.lst_now(nws.CITIES[code][4]).date() + timedelta(days=1)
+    try:
+        print(f"daily forecast check {code} {day}: high {nws.daily_high(code, day)}F")
+    except Exception as e:
+        print(f"DAILY FORECAST CHECK FAILED for {code}: {e} — tell Claude")
+PY
 # live check: can we read Kalshi's order book? (if not, paper trading would silently stop)
 venv/bin/python - <<'PY'
 from app.kalshi import KalshiClient, book_asks

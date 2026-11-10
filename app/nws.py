@@ -49,26 +49,60 @@ def climate_day_bounds_utc(day, std_offset):
 
 
 def _get(url, params=None):
-    r = _s.get(url, params=params, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    """NWS returns occasional 500s; retry twice before giving up on this city."""
+    import time
+    for attempt in range(3):
+        try:
+            r = _s.get(url, params=params, timeout=20)
+            if r.status_code >= 500 and attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException:
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
+
+
+def _points(code):
+    _, _, lat, lon, _ = CITIES[code]
+    if code not in _points_cache:
+        _points_cache[code] = _get(f"https://api.weather.gov/points/{lat:.4f},{lon:.4f}")["properties"]
+    return _points_cache[code]
+
+
+def _temp_f(p):
+    temp = p.get("temperature")
+    if isinstance(temp, dict):                  # newer format {value, unitCode}
+        v = temp.get("value")
+        return None if v is None else (v * 9 / 5 + 32 if "degC" in (temp.get("unitCode") or "") else v)
+    if temp is not None and p.get("temperatureUnit") == "C":
+        return temp * 9 / 5 + 32
+    return temp
+
+
+def daily_high(code, day):
+    """The official NWS forecast high for `day` (what meteorologists publish, e.g. 'High 61').
+    It already accounts for the afternoon peak that hourly readings undershoot."""
+    periods = _get(_points(code)["forecast"])["properties"]["periods"]
+    for p in periods:
+        if not p.get("isDaytime"):
+            continue
+        start = datetime.fromisoformat(p["startTime"])          # local time with offset
+        if start.date() == day:
+            t = _temp_f(p)
+            return float(t) if t is not None else None
+    return None
 
 
 def hourly_forecast(code):
     """List of (utc_datetime, temp_F)."""
-    _, _, lat, lon, _ = CITIES[code]
-    if code not in _points_cache:
-        _points_cache[code] = _get(f"https://api.weather.gov/points/{lat:.4f},{lon:.4f}")["properties"]["forecastHourly"]
-    periods = _get(_points_cache[code])["properties"]["periods"]
+    periods = _get(_points(code)["forecastHourly"])["properties"]["periods"]
     out = []
     for p in periods:
         t = datetime.fromisoformat(p["startTime"]).astimezone(timezone.utc)
-        temp = p["temperature"]
-        if isinstance(temp, dict):              # newer format {value, unitCode}
-            v = temp.get("value")
-            temp = v * 9 / 5 + 32 if "degC" in (temp.get("unitCode") or "") else v
-        elif p.get("temperatureUnit") == "C":
-            temp = temp * 9 / 5 + 32
+        temp = _temp_f(p)
         if temp is not None:
             out.append((t, float(temp)))
     return out

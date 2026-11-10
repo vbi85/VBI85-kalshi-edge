@@ -41,11 +41,16 @@ KELLY_FRACTION = _f("KELLY_FRACTION", 0.25)       # quarter-Kelly sizing
 MIN_EDGE = _f("MIN_EDGE", 0.08)          # model prob minus all-in cost, per contract
 MIN_PRICE = _f("MIN_PRICE", 0.10)        # skip lottery tickets
 MAX_PRICE = _f("MAX_PRICE", 0.85)        # skip pennies-in-front-of-steamroller
-TAKE_PROFIT = _f("TAKE_PROFIT", 0.12)    # sell when bid is this far above entry
+TAKE_PROFIT = _f("TAKE_PROFIT", 0.12)    # backup: sell +12c if our edge has mostly shrunk
 FEE_RATE = _f("FEE_RATE", 0.07)          # Kalshi taker fee multiplier
 MIN_VOLUME = _i("MIN_VOLUME", 50)        # skip dead markets
 # If our model disagrees with the market by more than this, assume WE are wrong and skip.
-MAX_DISAGREE = _f("MAX_DISAGREE", 0.30)
+MAX_DISAGREE = _f("MAX_DISAGREE", 0.20)
+NO_FADE_FAVORITE = _b("NO_FADE_FAVORITE", True)   # never bet NO on the market's top bracket
+# Exits
+STOP_LOSS = _f("STOP_LOSS", 0.15)            # price down this much -> re-check, exit if edge is gone
+STOP_KEEP_EDGE = _f("STOP_KEEP_EDGE", 0.10)  # ...only hold through a drop if model still sees this much edge
+HARD_STOP = _f("HARD_STOP", 0.50)            # exit regardless once the price has lost half its value
 
 # ---- Weather model ------------------------------------------------------
 # Forecast error (std dev, deg F) by how far out the settlement day is.

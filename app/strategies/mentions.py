@@ -124,7 +124,7 @@ class MentionsStrategy(Strategy):
                 if client.markets(series_ticker=st, status="open", max_pages=1):
                     act.append(st)
             except Exception as e:
-                db.log(f"mentions {st}: {e}", "warn")
+                db.log_once(f"mx:{st}", f"mentions {st}: {e}")
         db.log(f"mentions: {len(act)} active series (rechecked every {config.MENTION_REFRESH_HOURS:g}h)")
         self._active = (act, time.time())
         return act
@@ -139,7 +139,7 @@ class MentionsStrategy(Strategy):
                     continue
                 hist = self.history(client, st)
             except Exception as e:
-                db.log(f"mentions {st}: fetch failed: {e}", "warn")
+                db.log_once(f"mx-fetch:{st}", f"mentions {st}: fetch failed: {e}")
                 continue
             by_event = {}
             for m in live:

@@ -12,6 +12,8 @@ os.environ["MAX_DISAGREE"] = "1.0"   # fixtures use big mispricings; cap tested 
 from app import config, db, engine, fees, gate, nws  # noqa: E402
 from app.strategies import mentions, weather  # noqa: E402
 
+nws.daily_high = lambda code, day: None      # tests use the hourly path unless they set this
+
 
 def test_fees():
     assert fees.taker_fee(0.50, 10) == 0.18          # 0.07*10*.25 = 0.175 -> 0.18
@@ -73,6 +75,9 @@ class FakeClient:
     def orderbook(self, t, depth=30):
         return fake_book(self.ms[t])
 
+    def event_markets(self, ev):
+        return [m for m in self.ms.values() if m["event_ticker"] == ev]
+
 
 def test_full_paper_cycle(monkeypatch=None):
     db.init()
@@ -121,7 +126,7 @@ def test_take_profit():
         m["yes_bid"], m["yes_ask"] = jump, jump + 2
     engine.run_once(fc, strats)
     p = [r for r in db.all_positions("paper") if r["id"] == pos["id"]][0]
-    assert p["status"] == "closed" and p["exit_reason"] == "take_profit" and p["pnl"] > 0, p
+    assert p["status"] == "closed" and p["exit_reason"] in ("take_profit", "caught_up") and p["pnl"] > 0, p
     print("take-profit P&L:", p["pnl"])
 
 
@@ -170,6 +175,9 @@ class FakeMentionClient:
 
     def orderbook(self, t, depth=30):
         return fake_book(self.open[t])
+
+    def event_markets(self, ev):
+        return [m for m in self.open.values() if m["event_ticker"] == ev]
 
 
 def test_mentions():
@@ -279,6 +287,88 @@ def test_precap_excluded_and_summary():
     subj, body = summary.build()
     assert "Weather" in body and "go-live" in body
     print("summary subject:", subj)
+
+
+def test_exit_rules():
+    from app.engine import decide_exit
+    pos = {"entry_price": 0.40, "count": 10, "entry_fee": 0.17}
+    # winner, model still sees big edge -> HOLD (let it run), even though up 15c
+    assert decide_exit(pos, 0.55, 0.85) == (None, None)
+    # market caught up to our fair value -> take the win
+    assert decide_exit(pos, 0.86, 0.85)[0] == "caught_up"
+    # up 12c+ but our edge is nearly gone -> backup take-profit
+    assert decide_exit(pos, 0.53, 0.56)[0] in ("take_profit", "caught_up")
+    # down 15c and model no longer sees a big edge -> stop
+    assert decide_exit(pos, 0.25, 0.30)[0] == "stop_edge_gone"
+    # down 15c but model (freshly updated) still sees 10c+ edge -> hold
+    assert decide_exit(pos, 0.25, 0.45) == (None, None)
+    # lost half its value -> out, whatever the model says
+    assert decide_exit(pos, 0.19, 0.90)[0] == "stop_hard"
+    # unknown fair value (mentions during the event), down 15c -> stop
+    assert decide_exit(pos, 0.24, None)[0] == "stop_edge_gone"
+    print("exit rules ok")
+
+
+def test_no_fade_favorite():
+    ev = "KXHIGHTEST-26NOV21"
+    mk = lambda t, st, fl, cp, a: {"ticker": f"{ev}-{t}", "event_ticker": ev, "strike_type": st,
+                                   "floor_strike": fl, "cap_strike": cp, "yes_ask": a, "yes_bid": a - 2,
+                                   "no_ask": 102 - a, "no_bid": 100 - a, "volume": 500, "status": "active"}
+    ms = [mk("L", "less", None, 60, 5), mk("B60", "between", 60, 61, 20), mk("B62", "between", 62, 63, 45),
+          mk("B64", "between", 64, 65, 40), mk("G", "greater", 65, None, 25)]
+    d = weather.HighTempDist(65.0, 0.8)        # model says the crowd favorite (62-63) is very unlikely
+    old = config.MAX_DISAGREE, config.MAX_MEAN_GAP
+    config.MAX_DISAGREE, config.MAX_MEAN_GAP = 1.0, 99
+    try:
+        config.NO_FADE_FAVORITE = False
+        unguarded = weather.WeatherStrategy()._evaluate_event(ev, ms, d)
+        config.NO_FADE_FAVORITE = True
+        guarded = weather.WeatherStrategy()._evaluate_event(ev, ms, d)
+    finally:
+        config.MAX_DISAGREE, config.MAX_MEAN_GAP = old
+    print("without rule:", [(x.ticker[-3:], x.side) for x in unguarded],
+          "with rule:", [(x.ticker[-3:], x.side) for x in guarded])
+    assert any(x.side == "no" and x.ticker.endswith("B62") for x in unguarded)   # the bet it used to make
+    assert not any(x.side == "no" and x.ticker.endswith("B62") for x in guarded)
+
+
+def test_daily_forecast_and_calibration():
+    from app import calibrate
+    off = nws.CITIES["CHI"][4]
+    day = (datetime.now(timezone.utc) + timedelta(hours=off)).date() + timedelta(days=1)
+    start, _ = nws.climate_day_bounds_utc(day, off)
+    hourly = [(start + timedelta(hours=h), 50.0 + (8 if h == 15 else 0)) for h in range(24)]   # hourly max 58
+    now_lst = nws.lst_now(off).replace(tzinfo=None)
+    d = weather.build_dist("CHI", day, hourly, None, now_lst, daily=61.0, bias=0.0)
+    assert d.mu == 61.0 and d.source == "daily", (d.mu, d.source)          # daily beats hourly max
+    d2 = weather.build_dist("CHI", day, hourly, None, now_lst, daily=None, bias=0.0)
+    assert d2.mu == 58.0 and d2.source == "hourly"
+    # calibration: record a forecast for a past day, settle it 3F hotter, learn
+    past = (now_lst.date() - timedelta(days=1))
+    ev = "KXHIGHCHI-" + past.strftime("%y%b%d").upper()
+    calibrate.record_forecast(ev, "CHI", 58.0)
+
+    class C:
+        def event_markets(self, e):
+            return [{"strike_type": "between", "floor_strike": 61, "cap_strike": 62, "result": "yes"},
+                    {"strike_type": "between", "floor_strike": 59, "cap_strike": 60, "result": "no"}]
+    assert calibrate.learn(C()) == 1
+    b = calibrate.bias("CHI")
+    assert 0.5 < b < 1.5, b                       # 3.5F miss, 1 day of data -> cautious ~0.9F shift
+    d3 = weather.build_dist("CHI", day, hourly, None, now_lst, daily=61.0, bias=b)
+    assert d3.mu > 61.0 and d3.raw_mu == 61.0
+    print("calibration after 1 day:", b, "table:", calibrate.table())
+
+
+def test_old_model_tagging_restarts_clock():
+    from app import engine
+    db.set_setting("model_version", 1)
+    before = gate.stats("paper", "weather")["trades"]
+    engine.tag_old_model()
+    after = gate.stats("paper", "weather")["trades"]
+    assert before > 0 and after == 0, (before, after)
+    assert db.get_setting("model_version") == 2
+    print(f"old-model tagging: {before} counted -> {after}")
 
 
 def test_live_gate_is_per_strategy():
