@@ -36,7 +36,7 @@ MAX_PER_TRADE = _f("MAX_PER_TRADE", 10)           # dollars at risk per position
 MAX_OPEN_EXPOSURE = _f("MAX_OPEN_EXPOSURE", 60)   # dollars at risk across all open positions
 # Each strategy gets its own slice so one can't starve the other (weather used $59.86 of $60
 # on Nov 10 and Mentions never got a dollar).
-STRATEGY_BUDGET = {"weather": _f("WEATHER_BUDGET", 40), "mentions": _f("MENTIONS_BUDGET", 20),
+STRATEGY_BUDGET = {"weather": _f("WEATHER_BUDGET", 30), "mentions": _f("MENTIONS_BUDGET", 30),
                    "sports": _f("SPORTS_BUDGET", 0)}
 DAILY_LOSS_LIMIT = _f("DAILY_LOSS_LIMIT", 20)     # stop opening trades for the day after this
 KELLY_FRACTION = _f("KELLY_FRACTION", 0.25)       # quarter-Kelly sizing

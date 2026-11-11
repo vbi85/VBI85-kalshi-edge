@@ -402,6 +402,16 @@ def test_strategy_budgets():
     n = risk.size(0.80, 0.60, "paper", strategy="mentions")
     print("weather full; mentions can_open:", ok, why, "| contracts:", n)
     assert ok and n > 0                                      # mentions still gets its own money
+    # weather far OVER its budget (legacy positions) must not block mentions either
+    db.insert_position(dict(mode="paper", strategy="weather", ticker="W-OVER", event_ticker="E-WOVER",
+                            title="t", side="yes", count=50, entry_price=0.40, entry_fee=0.3,
+                            model_prob=0.6, market_prob=0.4, edge=0.1, opened_at=db.now(), status="open",
+                            notes=""))                       # weather now ~$60.8 open
+    r = risk.room("paper", strategy="mentions")
+    print("weather over budget; mentions room:", round(r, 2))
+    assert r >= config.STRATEGY_BUDGET["mentions"] - 0.01, r
+    with db.conn() as c:
+        c.execute("DELETE FROM positions WHERE ticker='W-OVER'")
     with db.conn() as c:
         c.execute("DELETE FROM positions WHERE ticker='W-FULL'")
     risk.realized_today = real_today

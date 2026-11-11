@@ -19,6 +19,9 @@ for line in open(".env.example"):
     if m and m.group(1) not in have:
         env += ("" if env.endswith("\n") else "\n") + line.rstrip("\n") + "\n"
         added.append(m.group(1))
+# Nov 10: split budget 30/30 to give Mentions a real test
+env = re.sub(r"^WEATHER_BUDGET=40[ \t]*$", "WEATHER_BUDGET=30", env, flags=re.M)
+env = re.sub(r"^MENTIONS_BUDGET=20[ \t]*$", "MENTIONS_BUDGET=30", env, flags=re.M)
 # Nov 10: blind hard stop off
 env = re.sub(r"^HARD_STOP=0\.50?[ \t]*$", "HARD_STOP=0", env, flags=re.M)
 # model v2: tighter disagreement cap

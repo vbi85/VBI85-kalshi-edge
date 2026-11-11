@@ -18,11 +18,15 @@ def open_exposure(mode, path=None, strategy=None):
 
 
 def room(mode, path=None, strategy=None):
-    """Dollars still available: the smaller of the overall cap and this strategy's own budget."""
-    left = config.MAX_OPEN_EXPOSURE - open_exposure(mode, path)
-    if strategy in config.STRATEGY_BUDGET:
-        left = min(left, config.STRATEGY_BUDGET[strategy] - open_exposure(mode, path, strategy))
-    return left
+    """Dollars still available to `strategy`: its own budget left, and the overall cap left.
+    Other strategies count against the overall cap only up to THEIR budget, so one strategy
+    sitting over its budget (e.g. after the budget is lowered) can't block the others."""
+    if strategy not in config.STRATEGY_BUDGET:
+        return config.MAX_OPEN_EXPOSURE - open_exposure(mode, path)
+    mine = open_exposure(mode, path, strategy)
+    others = sum(min(open_exposure(mode, path, s), b)
+                 for s, b in config.STRATEGY_BUDGET.items() if s != strategy)
+    return min(config.STRATEGY_BUDGET[strategy] - mine, config.MAX_OPEN_EXPOSURE - others - mine)
 
 
 def realized_today(mode, path=None):
