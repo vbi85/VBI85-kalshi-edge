@@ -302,8 +302,17 @@ def test_exit_rules():
     assert decide_exit(pos, 0.25, 0.30)[0] == "stop_edge_gone"
     # down 15c but model (freshly updated) still sees 10c+ edge -> hold
     assert decide_exit(pos, 0.25, 0.45) == (None, None)
-    # lost half its value -> out, whatever the model says
-    assert decide_exit(pos, 0.19, 0.90)[0] == "stop_hard"
+    # lost half its value but model still sees a big edge -> HOLD (blind hard stop is off)
+    assert decide_exit(pos, 0.19, 0.90) == (None, None)
+    # ...and the optional hard stop never fires on a cheap longshot even if switched on
+    old = config.HARD_STOP
+    config.HARD_STOP = 0.5
+    try:
+        assert decide_exit(pos, 0.19, 0.90)[0] == "stop_hard"
+        cheap = {"entry_price": 0.15, "count": 20, "entry_fee": 0.05}
+        assert decide_exit(cheap, 0.06, 0.30) == (None, None)
+    finally:
+        config.HARD_STOP = old
     # unknown fair value (mentions during the event), down 15c -> stop
     assert decide_exit(pos, 0.24, None)[0] == "stop_edge_gone"
     print("exit rules ok")
@@ -369,6 +378,15 @@ def test_old_model_tagging_restarts_clock():
     assert before > 0 and after == 0, (before, after)
     assert db.get_setting("model_version") == 2
     print(f"old-model tagging: {before} counted -> {after}")
+
+
+def test_cheap_bets_capped():
+    from app import risk
+    n = risk.size(0.30, 0.13, "paper")              # big edge on a 13c longshot
+    assert n * 0.13 <= config.CHEAP_MAX_STAKE + 0.01, n
+    m = risk.size(0.80, 0.45, "paper")              # normal bet keeps the normal cap
+    assert m * 0.45 > config.CHEAP_MAX_STAKE, m
+    print(f"longshot: {n} contracts (${n*0.13:.2f}); normal: {m} contracts (${m*0.45:.2f})")
 
 
 def test_live_gate_is_per_strategy():

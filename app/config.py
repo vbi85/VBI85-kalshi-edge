@@ -50,7 +50,12 @@ NO_FADE_FAVORITE = _b("NO_FADE_FAVORITE", True)   # never bet NO on the market's
 # Exits
 STOP_LOSS = _f("STOP_LOSS", 0.15)            # price down this much -> re-check, exit if edge is gone
 STOP_KEEP_EDGE = _f("STOP_KEEP_EDGE", 0.10)  # ...only hold through a drop if model still sees this much edge
-HARD_STOP = _f("HARD_STOP", 0.50)            # exit regardless once the price has lost half its value
+# Blind hard stop (exit at X% loss whatever the model says). OFF by default: on Nov 10 it
+# sold 5 weather bets on normal intraday swings and cost $13 of a $14 day (Philly would have won).
+HARD_STOP = _f("HARD_STOP", 0.0)
+# Cheap contracts (longshots): small fixed stake, held to the result instead of stopped out.
+CHEAP_PRICE = _f("CHEAP_PRICE", 0.30)
+CHEAP_MAX_STAKE = _f("CHEAP_MAX_STAKE", 3.0)
 
 # ---- Weather model ------------------------------------------------------
 # Forecast error (std dev, deg F) by how far out the settlement day is.

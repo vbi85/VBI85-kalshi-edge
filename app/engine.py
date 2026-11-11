@@ -34,8 +34,8 @@ def decide_exit(p, bid, fv):
     cost_each = entry + (p["entry_fee"] or 0) / n
     edge_left = None if fv is None else fv - net      # how much better holding is than selling
 
-    # 1. Hard stop: the position has lost half its value. Get out, whatever the model says.
-    if bid <= entry * (1 - config.HARD_STOP):
+    # 1. Optional blind hard stop (off by default), never on cheap longshots.
+    if config.HARD_STOP > 0 and entry >= config.CHEAP_PRICE and bid <= entry * (1 - config.HARD_STOP):
         return "stop_hard", max(0.01, round(bid - 0.05, 2))
     # 2. Down 15c: hold only if the (freshly updated) model still sees a big edge.
     if bid <= entry - config.STOP_LOSS and (edge_left is None or edge_left < config.STOP_KEEP_EDGE):

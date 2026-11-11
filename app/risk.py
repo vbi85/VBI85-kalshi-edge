@@ -30,7 +30,10 @@ def size(model_prob, price, mode, path=None, cap=None):
     kelly = (model_prob - price) / (1 - price)
     if kelly <= 0:
         return 0
-    stake = min(cap if cap is not None else config.MAX_PER_TRADE,
+    cap = cap if cap is not None else config.MAX_PER_TRADE
+    if price < config.CHEAP_PRICE:
+        cap = min(cap, config.CHEAP_MAX_STAKE)      # longshots: small stake, held to the result
+    stake = min(cap,
                 kelly * config.KELLY_FRACTION * bankroll(mode, path),
                 config.MAX_OPEN_EXPOSURE - open_exposure(mode, path))
     if stake <= 0:

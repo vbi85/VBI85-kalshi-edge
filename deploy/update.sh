@@ -2,7 +2,11 @@
 # One command for every future update: bash deploy/update.sh
 set -e
 cd /opt/kalshi-edge
-git pull -q
+# pull first, then restart this script so the NEW version of it runs (not the old copy)
+if [ -z "$KE_UPDATED" ]; then
+  git pull -q
+  KE_UPDATED=1 exec bash deploy/update.sh "$@"
+fi
 venv/bin/pip install -q -r requirements.txt
 # add any new settings from .env.example that this .env doesn't have yet (never overwrites yours)
 venv/bin/python - <<'EOF'
@@ -15,6 +19,8 @@ for line in open(".env.example"):
     if m and m.group(1) not in have:
         env += ("" if env.endswith("\n") else "\n") + line.rstrip("\n") + "\n"
         added.append(m.group(1))
+# Nov 10: blind hard stop off
+env = re.sub(r"^HARD_STOP=0\.50?[ \t]*$", "HARD_STOP=0", env, flags=re.M)
 # model v2: tighter disagreement cap
 env = re.sub(r"^MAX_DISAGREE=0\.30[ \t]*$", "MAX_DISAGREE=0.20", env, flags=re.M)
 # the old 7-city default becomes ALL cities
