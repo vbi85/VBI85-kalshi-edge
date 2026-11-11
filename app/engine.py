@@ -138,10 +138,10 @@ def enter(cands_by_strategy, brokers, mode_for, path=None):
         mode = mode_for(name)
         broker = brokers[mode]
         for c in sorted(cands, key=lambda c: c.model_prob - c.ask, reverse=True):
-            ok, why = risk.can_open(c.event_ticker, mode, path)
+            ok, why = risk.can_open(c.event_ticker, mode, path, strategy=c.strategy)
             if not ok:
                 continue
-            n = risk.size(c.model_prob, c.ask, mode, path, cap=c.max_stake)
+            n = risk.size(c.model_prob, c.ask, mode, path, cap=c.max_stake, strategy=c.strategy)
             if n < 1:
                 continue
             min_edge = c.min_edge if c.min_edge is not None else config.MIN_EDGE

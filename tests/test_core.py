@@ -389,6 +389,24 @@ def test_cheap_bets_capped():
     print(f"longshot: {n} contracts (${n*0.13:.2f}); normal: {m} contracts (${m*0.45:.2f})")
 
 
+def test_strategy_budgets():
+    from app import risk
+    real_today = risk.realized_today
+    risk.realized_today = lambda mode, path=None: 0.0        # isolate from earlier tests' fake losses
+    db.insert_position(dict(mode="paper", strategy="weather", ticker="W-FULL", event_ticker="E-WFULL",
+                            title="t", side="yes", count=100, entry_price=0.40, entry_fee=0.5,
+                            model_prob=0.6, market_prob=0.4, edge=0.1, opened_at=db.now(), status="open",
+                            notes=""))                       # $40.50 of weather -> weather budget full
+    assert risk.can_open("E-NEW", "paper", strategy="weather")[0] is False
+    ok, why = risk.can_open("E-NEW2", "paper", strategy="mentions")
+    n = risk.size(0.80, 0.60, "paper", strategy="mentions")
+    print("weather full; mentions can_open:", ok, why, "| contracts:", n)
+    assert ok and n > 0                                      # mentions still gets its own money
+    with db.conn() as c:
+        c.execute("DELETE FROM positions WHERE ticker='W-FULL'")
+    risk.realized_today = real_today
+
+
 def test_live_gate_is_per_strategy():
     db.set_setting("mode", "live")
     assert gate.mode_for("weather") == "paper"              # armed, but no strategy has earned it

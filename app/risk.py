@@ -12,9 +12,17 @@ def bankroll(mode, path=None):
     return config.PAPER_BANKROLL + realized
 
 
-def open_exposure(mode, path=None):
+def open_exposure(mode, path=None, strategy=None):
     return sum(p["entry_price"] * p["count"] + (p["entry_fee"] or 0)
-               for p in db.open_positions(mode, path))
+               for p in db.open_positions(mode, path) if strategy is None or p["strategy"] == strategy)
+
+
+def room(mode, path=None, strategy=None):
+    """Dollars still available: the smaller of the overall cap and this strategy's own budget."""
+    left = config.MAX_OPEN_EXPOSURE - open_exposure(mode, path)
+    if strategy in config.STRATEGY_BUDGET:
+        left = min(left, config.STRATEGY_BUDGET[strategy] - open_exposure(mode, path, strategy))
+    return left
 
 
 def realized_today(mode, path=None):
@@ -23,7 +31,7 @@ def realized_today(mode, path=None):
                if p["status"] != "open" and (p["closed_at"] or "").startswith(today))
 
 
-def size(model_prob, price, mode, path=None, cap=None):
+def size(model_prob, price, mode, path=None, cap=None, strategy=None):
     """Quarter-Kelly, then capped. Returns contract count (0 = skip)."""
     if not (0 < price < 1):
         return 0
@@ -35,7 +43,7 @@ def size(model_prob, price, mode, path=None, cap=None):
         cap = min(cap, config.CHEAP_MAX_STAKE)      # longshots: small stake, held to the result
     stake = min(cap,
                 kelly * config.KELLY_FRACTION * bankroll(mode, path),
-                config.MAX_OPEN_EXPOSURE - open_exposure(mode, path))
+                room(mode, path, strategy))
     if stake <= 0:
         return 0
     count = math.floor(stake / price)
@@ -44,12 +52,12 @@ def size(model_prob, price, mode, path=None, cap=None):
     return max(count, 0)
 
 
-def can_open(event_ticker, mode, path=None):
+def can_open(event_ticker, mode, path=None, strategy=None):
     """Returns (ok, reason)."""
     if realized_today(mode, path) <= -config.DAILY_LOSS_LIMIT:
         return False, "daily loss limit hit"
-    if open_exposure(mode, path) >= config.MAX_OPEN_EXPOSURE:
-        return False, "max open exposure"
+    if room(mode, path, strategy) < 1:
+        return False, f"{strategy or 'overall'} budget full"
     if any(p["event_ticker"] == event_ticker for p in db.all_positions(mode, path)):
         return False, "already traded this event (no re-entry)"
     return True, ""
