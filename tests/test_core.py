@@ -7,7 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ["DB_PATH"] = tempfile.mktemp(suffix=".db")
 os.environ["WEATHER_CITIES"] = "CHI"
-os.environ["MAX_DISAGREE"] = "1.0"   # fixtures use big mispricings; cap tested separately
+os.environ["MAX_DISAGREE"] = "1.0"
+os.environ["SHADOW_STRATEGIES"] = ""      # tests trade every strategy unless a test opts in   # fixtures use big mispricings; cap tested separately
 
 from app import config, db, engine, fees, gate, nws  # noqa: E402
 from app.strategies import mentions, weather  # noqa: E402
@@ -394,9 +395,9 @@ def test_strategy_budgets():
     real_today = risk.realized_today
     risk.realized_today = lambda mode, path=None: 0.0        # isolate from earlier tests' fake losses
     db.insert_position(dict(mode="paper", strategy="weather", ticker="W-FULL", event_ticker="E-WFULL",
-                            title="t", side="yes", count=100, entry_price=0.40, entry_fee=0.5,
+                            title="t", side="yes", count=130, entry_price=0.40, entry_fee=0.5,
                             model_prob=0.6, market_prob=0.4, edge=0.1, opened_at=db.now(), status="open",
-                            notes=""))                       # $40.50 of weather -> weather budget full
+                            notes=""))                       # $52.50 of weather -> weather budget full
     assert risk.can_open("E-NEW", "paper", strategy="weather")[0] is False
     ok, why = risk.can_open("E-NEW2", "paper", strategy="mentions")
     n = risk.size(0.80, 0.60, "paper", strategy="mentions")
@@ -415,6 +416,35 @@ def test_strategy_budgets():
     with db.conn() as c:
         c.execute("DELETE FROM positions WHERE ticker='W-FULL'")
     risk.realized_today = real_today
+
+
+def test_shadow_mode():
+    from app import shadow
+    config.SHADOW_STRATEGIES = ["mentions"]
+    try:
+        fc = FakeMentionClient()
+        fc.ev = "KXBRIEFMENTION-26NOV30"
+        for t in list(fc.open):
+            m = fc.open.pop(t)
+            nt = t.replace("26NOV12", "26NOV30")
+            m.update(ticker=nt, event_ticker=fc.ev)
+            fc.open[nt] = m
+        before = len(db.all_positions())
+        n = engine.run_once(fc, [mentions.MentionsStrategy()])
+        assert n == 0 and len(db.all_positions()) == before         # no position, no money
+        st = shadow.stats("mentions")
+        assert st["logged"] >= 1, st
+        engine.run_once(fc, [mentions.MentionsStrategy()])
+        assert shadow.stats("mentions")["logged"] == st["logged"]  # one per event, no duplicates
+        t = next(iter(fc.open))
+        for m in fc.open.values():
+            m["result"] = "yes" if m["ticker"].endswith("TARIFF") else "no"
+        shadow.grade(fc)
+        st = shadow.stats("mentions")
+        print("shadow:", st)
+        assert st["graded"] >= 1
+    finally:
+        config.SHADOW_STRATEGIES = []
 
 
 def test_live_gate_is_per_strategy():

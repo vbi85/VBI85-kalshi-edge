@@ -19,6 +19,9 @@ for line in open(".env.example"):
     if m and m.group(1) not in have:
         env += ("" if env.endswith("\n") else "\n") + line.rstrip("\n") + "\n"
         added.append(m.group(1))
+# Nov 11: Mentions to shadow mode, money back to Weather
+env = re.sub(r"^WEATHER_BUDGET=(30|40)[ \t]*$", "WEATHER_BUDGET=50", env, flags=re.M)
+env = re.sub(r"^MENTIONS_BUDGET=(30|20)[ \t]*$", "MENTIONS_BUDGET=10", env, flags=re.M)
 # Nov 10: split budget 30/30 to give Mentions a real test
 env = re.sub(r"^WEATHER_BUDGET=40[ \t]*$", "WEATHER_BUDGET=30", env, flags=re.M)
 env = re.sub(r"^MENTIONS_BUDGET=20[ \t]*$", "MENTIONS_BUDGET=30", env, flags=re.M)

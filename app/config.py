@@ -36,7 +36,7 @@ MAX_PER_TRADE = _f("MAX_PER_TRADE", 10)           # dollars at risk per position
 MAX_OPEN_EXPOSURE = _f("MAX_OPEN_EXPOSURE", 60)   # dollars at risk across all open positions
 # Each strategy gets its own slice so one can't starve the other (weather used $59.86 of $60
 # on Nov 10 and Mentions never got a dollar).
-STRATEGY_BUDGET = {"weather": _f("WEATHER_BUDGET", 30), "mentions": _f("MENTIONS_BUDGET", 30),
+STRATEGY_BUDGET = {"weather": _f("WEATHER_BUDGET", 50), "mentions": _f("MENTIONS_BUDGET", 10),
                    "sports": _f("SPORTS_BUDGET", 0)}
 DAILY_LOSS_LIMIT = _f("DAILY_LOSS_LIMIT", 20)     # stop opening trades for the day after this
 KELLY_FRACTION = _f("KELLY_FRACTION", 0.25)       # quarter-Kelly sizing
@@ -83,6 +83,10 @@ MENTION_MAX_MOVE = _f("MENTION_MAX_MOVE", 0.15)         # price jumped this much
 MENTION_MAX_PER_TRADE = _f("MENTION_MAX_PER_TRADE", 5)  # half size: weakest data of the set
 MENTION_MIN_EDGE = _f("MENTION_MIN_EDGE", 0.10)
 MENTION_REFRESH_HOURS = _f("MENTION_REFRESH_HOURS", 6)  # re-find active series / history this often
+
+# Shadow strategies keep scanning and get graded, but put $0 at risk (Mentions since Nov 11:
+# its odds were ~2x less accurate than the market's).
+SHADOW_STRATEGIES = [s.strip() for s in os.getenv("SHADOW_STRATEGIES", "mentions").split(",") if s.strip()]
 
 ENABLED_STRATEGIES = [s.strip() for s in os.getenv(
     "ENABLED_STRATEGIES", "weather,mentions").split(",") if s.strip()]

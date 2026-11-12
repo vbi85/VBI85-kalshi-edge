@@ -36,7 +36,14 @@ def build():
     for r in closed[:10]:
         lines.append(f"  {'+' if (r['pnl'] or 0) > 0 else '-'} ${r['pnl']:+.2f} {r['strategy']} "
                      f"{r['side'].upper()} {r['title'][:50]} ({r['exit_reason']})")
-    from . import calibrate
+    from . import calibrate, shadow
+    for name in config.SHADOW_STRATEGIES:
+        sh = shadow.stats(name)
+        line = f"{name.title()} (SHADOW, $0 at risk): {sh['logged']} would-be bets, {sh['graded']} graded"
+        if sh["graded"]:
+            line += (f", {sh['wins']} won, would-be P&L ${sh['pnl_per_contract']:+.2f} per contract; "
+                     f"accuracy model {sh['brier_model']:.3f} vs market {sh['brier_market']:.3f} (lower wins)")
+        lines += ["", line]
     corr = calibrate.table()
     if corr:
         lines += ["", "City corrections (actual high minus forecast, learned daily):"]

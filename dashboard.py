@@ -83,7 +83,11 @@ button{font-weight:700;cursor:pointer}button:disabled{opacity:.35}
 {% endmacro %}
 
 {% for name, label in [('weather','🌡 Weather'),('mentions','🎤 Mentions')] %}
-<h2>{{label}} — open ({{open_by[name]|length}})</h2>
+<h2>{{label}} — open ({{open_by[name]|length}}){% if name in shadows %} <span class="tag">SHADOW · $0 at risk</span>{% endif %}</h2>
+{% if name in shadows %}{% set sh = shadows[name] %}
+<div class="row"><small>Still scanning, not betting. {{sh.logged}} would-be bets logged, {{sh.graded}} graded{% if sh.graded %}: {{sh.wins}} won · would-be P&amp;L ${{"%+.2f"|format(sh.pnl_per_contract)}} per contract · accuracy model {{"%.3f"|format(sh.brier_model)}} vs market {{"%.3f"|format(sh.brier_market)}} (lower wins){% endif %}.
+Turns back on only if it beats the market over ~20 events.</small></div>
+{% endif %}
 {% for c in open_by[name] %}{{ pos(c) }}{% else %}<div class="row"><small>None</small></div>{% endfor %}
 {% endfor %}
 
@@ -137,6 +141,7 @@ def home():
         open_by={n: [labels.card(r) for r in rows if r["status"] == "open" and r["strategy"] == n]
                  for n in ("weather", "mentions")},
         closed=[labels.card(r) for r in rows if r["status"] != "open"][:15],
+        shadows={n: __import__("app.shadow", fromlist=["x"]).stats(n) for n in config.SHADOW_STRATEGIES},
         events=events, corrections=__import__("app.calibrate", fromlist=["x"]).table(), last_run=(db.get_setting("last_run") or "")[:16].replace("T", " "),
         msg=request.args.get("msg"))
 

@@ -1,5 +1,5 @@
 """One pass of the bot: manage open positions, then look for new edges."""
-from . import calibrate, config, db, notify, risk
+from . import calibrate, config, db, notify, risk, shadow
 from .broker import LiveBroker, PaperBroker
 from .fees import taker_fee
 from .kalshi import quotes
@@ -135,6 +135,10 @@ def price_limit(model_prob, count, min_edge):
 def enter(cands_by_strategy, brokers, mode_for, path=None):
     opened = 0
     for name, cands in cands_by_strategy.items():
+        if name in config.SHADOW_STRATEGIES:
+            for c in cands:
+                shadow.record(c, path)        # logged and graded later, $0 at risk
+            continue
         mode = mode_for(name)
         broker = brokers[mode]
         for c in sorted(cands, key=lambda c: c.model_prob - c.ask, reverse=True):
@@ -206,6 +210,10 @@ def run_once(client, strategies, mode_for=None, path=None):
     for mode in ("paper", "live"):
         manage(client, brokers[mode], strategies, mode, path)
     backfill_outcomes(client, path)
+    try:
+        shadow.grade(client, path)
+    except Exception as e:
+        db.log_once("shadow-grade", f"shadow grading skipped: {e}", "warn", path)
     try:
         calibrate.learn(client, path)
     except Exception as e:
